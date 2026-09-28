@@ -14,6 +14,7 @@ import {
   TAMANHO_MAXIMO_MENSAGEM_CANAL,
   decodificarMensagem,
   esquemaMensagemCanal,
+  type EventoInput,
   type MensagemCanal,
   type Papel,
   type Sinal,
@@ -30,12 +31,16 @@ export interface OpcoesPar {
   aoMedirLatencia?: (ms: number) => void;
   /** Visualizador: chegou o vídeo da tela do anfitrião. */
   aoReceberVideo?: (video: MediaStream) => void;
+  /** Anfitrião: chegou um evento de mouse/teclado do visualizador (já validado). */
+  aoReceberInput?: (evento: EventoInput) => void;
 }
 
 /** O que o controlador de sessão precisa de uma conexão (permite trocar por um falso nos testes). */
 export interface Par {
   iniciar(): Promise<void>;
   receberSinal(sinal: Sinal): Promise<void>;
+  /** Visualizador: envia um evento de input pelo DataChannel. */
+  enviarInput(evento: EventoInput): void;
   fechar(): void;
 }
 
@@ -143,6 +148,10 @@ export class ConexaoPar implements Par {
     }
   }
 
+  enviarInput(evento: EventoInput): void {
+    this.enviarNoCanal(evento);
+  }
+
   fechar(): void {
     clearInterval(this.timerPing);
     // Parar as trilhas é o que desliga a captura da tela de fato.
@@ -202,6 +211,12 @@ export class ConexaoPar implements Par {
         break;
       case 'pong':
         this.opcoes.aoMedirLatencia?.(Math.round(performance.now() - mensagem.t));
+        break;
+      case 'mouse_mover':
+      case 'mouse_botao':
+      case 'mouse_rolar':
+        // O visualizador nunca é controlado: ignora input que chegue a ele.
+        if (this.opcoes.papel === 'anfitriao') this.opcoes.aoReceberInput?.(mensagem);
         break;
     }
   }

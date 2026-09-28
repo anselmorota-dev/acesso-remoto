@@ -15,8 +15,8 @@ Não tenho pressa: prefiro entender cada parte a avançar rápido.
 ## Stack
 - **App desktop:** Electron + TypeScript
 - **Vídeo e dados:** WebRTC (RTCPeerConnection + DataChannel)
-- **Controle de mouse/teclado:** `@nut-tree-fork/nut-js` (fork comunitário gratuito do nut.js);
-  alternativa: `@jitsi/robotjs`. Confirmar qual está mais estável antes de adotar.
+- **Controle de mouse/teclado:** `@jitsi/robotjs` (escolhido na 2.2: ativo e com binários N-API
+  prontos, que funcionam no Electron sem compilar; o `@nut-tree-fork/nut-js` estava parado desde 03/2025)
 - **Servidor de sinalização:** Node.js + TypeScript + `ws` (WebSocket), deploy no Render
 - **Redes difíceis (fase 5):** servidor TURN (coturn ou serviço gerenciado)
 - **Monorepo:** npm workspaces (`shared`, `server`, `app`); TypeScript 7 só para checar tipos
@@ -82,7 +82,7 @@ Não tenho pressa: prefiro entender cada parte a avançar rápido.
 
 ### Fase 2 — Controlar
 - [x] 2.1 Popup Aceitar/Recusar no anfitrião (janela vem para frente, contagem regressiva, som)
-- [ ] 2.2 DataChannel com eventos de mouse (mover, clicar, rolar)
+- [x] 2.2 DataChannel com eventos de mouse (mover, clicar, rolar)
 - [ ] 2.3 Teclado, incluindo atalhos (Ctrl, Alt, Shift) e caracteres com acento
 - [ ] 2.4 Encerrar sessão pelos dois lados; indicador de sessão ativa
 - [ ] 2.5 Deploy do servidor no Render e teste entre duas redes diferentes
@@ -111,8 +111,8 @@ Não tenho pressa: prefiro entender cada parte a avançar rápido.
 - **Render (plano gratuito):** o servidor "dorme" sem uso; a primeira conexão pode demorar alguns segundos.
 
 ## Estado atual
-Fase 1 concluída (etapas 1.1 a 1.5). Fase 2 em andamento: 2.1 concluída. Próxima: 2.2
-(eventos de mouse pelo DataChannel; começa escolhendo entre robotjs e nut-js).
+Fase 1 concluída (etapas 1.1 a 1.5). Fase 2 em andamento: 2.1 e 2.2 concluídas. Próxima: 2.3
+(teclado, atalhos e acentos).
 
 Decisões já tomadas:
 - ID temporário: sorteado pelo servidor a cada conexão, guardado só em memória.
@@ -132,6 +132,18 @@ Decisões já tomadas:
   principal das nossas janelas, ver `main/quadros.ts`): o main restaura, mostra, foca e, se o
   Windows barrar o foco, pisca na barra de tarefas. Som: "ding-dong" por Web Audio
   (`renderer/alerta.ts`), sem arquivo.
+- Mouse (2.2): aceitar o pedido libera ver E controlar (a caixa de aceite diz isso). Fluxo:
+  `renderer/controle.ts` (visualizador; coordenadas 0–1 sobre a área real da imagem, descontando
+  as faixas do object-fit; mover/rolar agrupados por requestAnimationFrame; botão leva a posição
+  junto) → canal (`mouse_mover`, `mouse_botao`, `mouse_rolar` em `shared/src/canal.ts`) →
+  ControladorSessao (só o anfitrião repassa, só da conexão atual) → IPC `input:executar` →
+  `main/input.ts` valida de novo (Zod) → `main/executor-input.ts` (pixels, limite de 200
+  eventos/s por balde de fichas, botões apertados) → robotjs. Fim da sessão, janela fechada ou
+  renderer travado soltam os botões (`input:liberar`); o visualizador solta ao perder o foco.
+- Pixels: usa `robot.getScreenSize()` (mesmo sistema de coordenadas do `moveMouse`), não o
+  `screen` do Electron (que usa DIP). `robot.setMouseDelay(0)`: o padrão (10 ms) trava o main.
+- Rolagem em pixels do navegador (dy > 0 = descer); `rolagemParaSistema` converte (Windows:
+  100 px = 120 unidades da roda; macOS: pixels; Linux: cliques).
 - WebRTC (`renderer/par.ts`): o anfitrião cria a oferta e o DataChannel "controle"; trickle
   ICE com fila de candidatos que chegam antes da descrição remota. Ping/pong pelo canal mede
   a latência. Mensagens do canal validadas com Zod (`shared/src/canal.ts`), máx. 16 KB.
@@ -149,8 +161,14 @@ Decisões já tomadas:
   conexão WebRTC por injeção (`criarPar`) para ser testada no Node com um par falso.
 
 Notas para as próximas etapas:
-- `@nut-tree-fork/nut-js` sem atualização desde 03/2025; `@jitsi/robotjs` ativo (07/2026).
-  Reavaliar na fase 2, provável escolha: robotjs.
+- robotjs: o npm desta máquina bloqueia scripts de instalação (`install: node-gyp-build`); não
+  faz falta porque o binário win32-x64 vem pronto. Na 5.4 (instalador) o `.node` precisa ficar
+  fora do asar (`asarUnpack`).
+- robotjs guarda o tamanho da área de trabalho virtual na 1ª chamada e não atualiza: se os
+  monitores mudarem com o app aberto, as coordenadas ficam erradas. Tratar na 5.1.
+- Mouse ainda não testado com escala do Windows ≠ 100% nem no macOS (esta máquina: 1366x768, 100%).
+- Teste E2E do mouse: anfitrião e visualizador na mesma máquina movem o mouse real; posicionar
+  as janelas lado a lado (user32 `SetWindowPos`) e clicar só em área vazia da janela do anfitrião.
 - Endurecimento pendente do Electron: `setPermissionRequestHandler`/`setPermissionCheckHandler`
   negando tudo que o app não usa (hoje o Electron concede permissões por padrão).
 - Se o usuário parar a captura pelo sistema operacional, a trilha termina ("ended") mas a

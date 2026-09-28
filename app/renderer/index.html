@@ -21,7 +21,10 @@
     <!-- Caixa de aceite: o anfitrião decide se permite o acesso. -->
     <dialog id="dialogo-pedido" class="dialogo" aria-labelledby="titulo-pedido">
       <h2 id="titulo-pedido">Pedido de acesso</h2>
-      <p>O computador <strong id="origem-pedido" class="id-inline"></strong> quer acessar este computador.</p>
+      <p>
+        O computador <strong id="origem-pedido" class="id-inline"></strong> quer acessar este computador.
+        Se você aceitar, ele poderá <strong>ver a tela e controlar o mouse e o teclado</strong>.
+      </p>
       <p class="nota">Só aceite se você conhece e confia em quem está pedindo.</p>
       <!-- Contagem regressiva; aria-live desligado para o leitor de tela não anunciar cada segundo. -->
       <p id="prazo-pedido" class="nota prazo" aria-live="off"></p>

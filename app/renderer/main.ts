@@ -21,7 +21,9 @@ const telaSessao = montarTelaSessao({
   aoResponderPedido: (aceito) => controlador.responderPedido(aceito),
 });
 
-const telaVisualizacao = montarTelaVisualizacao();
+const telaVisualizacao = montarTelaVisualizacao({
+  aoInput: (evento) => controlador.enviarInput(evento),
+});
 
 function renderizar(): void {
   telaInicio.atualizar(estadoSinalizacao, estadoSessao);
@@ -52,6 +54,9 @@ const controlador = new ControladorSessao({
   },
   criarPar: (opcoes) => new ConexaoPar(opcoes),
   aoMudarVideo: (video) => telaVisualizacao.definirVideo(video),
+  // Anfitrião: só o main executa input; o renderer apenas repassa.
+  aoReceberInput: (evento) => window.api.input.executar(evento),
+  aoLiberarInput: () => window.api.input.liberar(),
 });
 
 sinalizacao.iniciar();

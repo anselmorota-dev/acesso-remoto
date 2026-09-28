@@ -3,6 +3,7 @@
 // conexão com o outro computador. Não mexe na interface nem no WebSocket
 // diretamente: recebe funções para isso (o que permite testá-lo no Node).
 import type {
+  EventoInput,
   IdCliente,
   MensagemDoCliente,
   MensagemDoServidor,
@@ -39,6 +40,10 @@ export interface OpcoesControlador {
   criarPar: (opcoes: OpcoesPar) => Par;
   /** Visualizador: vídeo da tela remota chegou (ou null quando a sessão acaba). */
   aoMudarVideo?: (video: MediaStream | null) => void;
+  /** Anfitrião: evento de mouse/teclado vindo do visualizador, a executar. */
+  aoReceberInput?: (evento: EventoInput) => void;
+  /** Anfitrião: a sessão acabou; soltar botões/teclas que ficaram apertados. */
+  aoLiberarInput?: () => void;
 }
 
 const TEXTO_RECUSA: Record<MotivoRecusa, string> = {
@@ -95,6 +100,12 @@ export class ControladorSessao {
     this.opcoes.enviar({ tipo: 'responder_pedido', origem: estado.origem, aceito });
     // Se aceitou, espera o servidor confirmar com "sessao_iniciada".
     this.mudar(aceito ? { ...estado, respondendo: true } : { fase: 'livre' });
+  }
+
+  /** Visualizador: envia um evento de mouse/teclado ao anfitrião. */
+  enviarInput(evento: EventoInput): void {
+    const estado = this.estadoAtual;
+    if (estado.fase === 'em_sessao' && estado.papel === 'visualizador') this.par?.enviarInput(evento);
   }
 
   /** Cancela o pedido ou encerra a sessão (qualquer um dos lados). */
@@ -199,6 +210,10 @@ export class ControladorSessao {
       aoReceberVideo: (video) => {
         if (this.par === par) this.opcoes.aoMudarVideo?.(video);
       },
+      // Só quem mostra a tela aceita ser controlado, e só pela conexão atual.
+      aoReceberInput: (evento) => {
+        if (this.par === par && papel === 'anfitriao') this.opcoes.aoReceberInput?.(evento);
+      },
     });
     this.par = par;
     par.iniciar().catch((erro: unknown) => this.falhaNaConexao(erro));
@@ -223,6 +238,9 @@ export class ControladorSessao {
     this.par = null; // antes de fechar, para ignorar os eventos que o fechamento dispara
     par.fechar();
     this.opcoes.aoMudarVideo?.(null);
+    if (this.estadoAtual.fase === 'em_sessao' && this.estadoAtual.papel === 'anfitriao') {
+      this.opcoes.aoLiberarInput?.();
+    }
   }
 
   private mudar(estado: EstadoSessao): void {

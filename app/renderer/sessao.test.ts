@@ -5,7 +5,7 @@
 import assert from 'node:assert/strict';
 import { afterEach, beforeEach, test } from 'node:test';
 import { iniciarServidor, type ServidorSinalizacao } from '@acesso-remoto/server/servidor';
-import type { Sinal } from '@acesso-remoto/shared';
+import type { EventoInput, Sinal } from '@acesso-remoto/shared';
 import { ErroCaptura } from './captura';
 import type { OpcoesPar, Par } from './par';
 import { ControladorSessao, type EstadoSessao } from './sessao';
@@ -17,6 +17,7 @@ let simularFalhaCaptura = false;
 /** Conexão falsa: registra o que o controlador pede e permite simular eventos. */
 class ParFalso implements Par {
   readonly sinaisRecebidos: Sinal[] = [];
+  readonly inputsEnviados: EventoInput[] = [];
   iniciado = false;
   fechado = false;
   constructor(readonly opcoes: OpcoesPar) {}
@@ -29,6 +30,9 @@ class ParFalso implements Par {
   async receberSinal(sinal: Sinal) {
     this.sinaisRecebidos.push(sinal);
     if (sinal.tipo === 'oferta') this.opcoes.enviarSinal({ tipo: 'resposta', sdp: 'resposta-falsa' });
+  }
+  enviarInput(evento: EventoInput) {
+    this.inputsEnviados.push(evento);
   }
   fechar() {
     this.fechado = true;
@@ -53,6 +57,8 @@ async function criarApp() {
   const estados: EstadoSessao[] = [];
   const pares: ParFalso[] = [];
   const videos: Array<MediaStream | null> = [];
+  const inputs: EventoInput[] = [];
+  let liberacoes = 0;
   let id = '';
   const sinalizacao: ClienteSinalizacao = new ClienteSinalizacao({
     url: `ws://127.0.0.1:${servidor.porta}`,
@@ -72,11 +78,13 @@ async function criarApp() {
       return par;
     },
     aoMudarVideo: (video) => videos.push(video),
+    aoReceberInput: (evento) => inputs.push(evento),
+    aoLiberarInput: () => liberacoes++,
   });
   sinalizacao.iniciar();
   limpezas.push(() => sinalizacao.parar());
   await aguardar(() => id !== '');
-  return { controlador, sinalizacao, estados, pares, videos, id: () => id };
+  return { controlador, sinalizacao, estados, pares, videos, inputs, liberacoes: () => liberacoes, id: () => id };
 }
 
 type App = Awaited<ReturnType<typeof criarApp>>;
@@ -240,4 +248,41 @@ test('falha na captura encerra a sessão e o motivo chega ao visualizador', asyn
   assert.equal(aviso(anfitriao), 'Não foi possível capturar a tela deste computador.');
   assert.equal(aviso(visualizador), 'O outro computador não conseguiu capturar a tela.');
   assert.ok(anfitriao.pares[0]?.fechado && visualizador.pares[0]?.fechado);
+});
+
+const clique: EventoInput = { tipo: 'mouse_botao', botao: 'esquerdo', pressionado: true, x: 0.5, y: 0.5 };
+
+test('só o visualizador envia input pelo canal', async () => {
+  const { visualizador, anfitriao } = await emSessao();
+  visualizador.controlador.enviarInput(clique);
+  anfitriao.controlador.enviarInput(clique);
+  assert.deepEqual(visualizador.pares[0]?.inputsEnviados, [clique]);
+  assert.deepEqual(anfitriao.pares[0]?.inputsEnviados, []);
+});
+
+test('fora de uma sessão, input não é enviado', async () => {
+  const visualizador = await criarApp();
+  visualizador.controlador.enviarInput(clique); // não há par: não pode lançar erro
+  assert.equal(visualizador.pares.length, 0);
+});
+
+test('input recebido só é executado no anfitrião', async () => {
+  const { visualizador, anfitriao } = await emSessao();
+  anfitriao.pares[0]?.opcoes.aoReceberInput?.(clique);
+  visualizador.pares[0]?.opcoes.aoReceberInput?.(clique);
+  assert.deepEqual(anfitriao.inputs, [clique]);
+  assert.deepEqual(visualizador.inputs, []);
+});
+
+test('fim da sessão solta os botões no anfitrião e ignora input atrasado', async () => {
+  const { visualizador, anfitriao } = await emSessao();
+  const parAntigo = anfitriao.pares[0];
+  visualizador.controlador.encerrar();
+  await aguardar(() => fase(anfitriao) === 'livre');
+
+  assert.equal(anfitriao.liberacoes(), 1);
+  assert.equal(visualizador.liberacoes(), 0);
+  // Um evento que chegue depois do fim (conexão antiga) não é executado.
+  parAntigo?.opcoes.aoReceberInput?.(clique);
+  assert.deepEqual(anfitriao.inputs, []);
 });

@@ -9,17 +9,18 @@
     "build": "electron-vite build",
     "preview": "electron-vite preview",
     "typecheck": "tsc -p tsconfig.json && tsc -p renderer/tsconfig.json && tsc -p renderer/tsconfig.test.json",
-    "test": "node --import tsx --test --test-timeout=10000 \"renderer/**/*.test.ts\""
+    "test": "node --import tsx --test --test-timeout=10000 \"main/**/*.test.ts\" \"renderer/**/*.test.ts\""
   },
   "dependencies": {
-    "@acesso-remoto/shared": "*"
+    "@acesso-remoto/shared": "*",
+    "@jitsi/robotjs": "^0.6.24"
   },
   "devDependencies": {
     "@acesso-remoto/server": "*",
     "@types/node": "^24",
-    "tsx": "^4.23.15",
     "electron": "^44.4.5",
     "electron-vite": "^5.0.0",
+    "tsx": "^4.23.15",
     "vite": "^7"
   }
 }

@@ -1,10 +1,11 @@
-// Processo principal do Electron: cria janelas e, nas próximas fases,
-// será o único lugar que executa input (mouse/teclado) no sistema.
+// Processo principal do Electron: cria janelas e é o único lugar que
+// executa input (mouse/teclado) no sistema.
 import { join } from 'node:path';
 import { app, BrowserWindow } from 'electron';
 import { PROTOCOL_VERSION } from '@acesso-remoto/shared';
 import { configurarAtencao } from './atencao';
 import { configurarCaptura } from './captura';
+import { configurarInput } from './input';
 
 function criarJanelaPrincipal(): void {
   const janela = new BrowserWindow({
@@ -44,6 +45,7 @@ void app.whenReady().then(() => {
   console.log(`[main] app pronto (protocolo v${PROTOCOL_VERSION})`);
   configurarCaptura();
   configurarAtencao();
+  configurarInput(); // antes de criar a janela: registra a limpeza ao fechá-la
   criarJanelaPrincipal();
 
   // macOS: recria a janela ao clicar no ícone do dock se nenhuma estiver aberta.
