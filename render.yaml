@@ -16,3 +16,6 @@ services:
     envVars:
       - key: NODE_VERSION
         value: "24"
+      # DATABASE_URL (segredo, NÃO vai neste arquivo): URL de conexão do Postgres
+      # no Neon, cadastrada à mão no painel do Render (serviço → Environment).
+      # Sem ela, o servidor funciona, mas os IDs fixos somem a cada reinício.

@@ -6,6 +6,8 @@ import { contextBridge, ipcRenderer } from 'electron';
 import {
   CANAL_CHAMAR_ATENCAO,
   CANAL_EXECUTAR_INPUT,
+  CANAL_IDENTIDADE_ASSINAR,
+  CANAL_IDENTIDADE_CHAVE,
   CANAL_INDICAR_SESSAO,
   CANAL_LIBERAR_INPUT,
   CANAL_PEDIDO_ENCERRAR,
@@ -32,6 +34,10 @@ const api: ApiDoPreload = {
     aoPedirEncerramento: (tratar) => {
       ipcRenderer.on(CANAL_PEDIDO_ENCERRAR, () => tratar());
     },
+  },
+  identidade: {
+    chavePublica: () => ipcRenderer.invoke(CANAL_IDENTIDADE_CHAVE),
+    assinarDesafio: (desafio) => ipcRenderer.invoke(CANAL_IDENTIDADE_ASSINAR, desafio),
   },
   senha: {
     estado: () => ipcRenderer.invoke(CANAL_SENHA_ESTADO),

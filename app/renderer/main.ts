@@ -36,6 +36,8 @@ function renderizar(): void {
 
 const sinalizacao = new ClienteSinalizacao({
   url: import.meta.env.RENDERER_VITE_SERVIDOR_URL,
+  // ID fixo: a chave privada da instalação fica no main, que assina o desafio.
+  identidade: window.api.identidade,
   aoMudarEstado: (estado) => {
     estadoSinalizacao = estado;
     if (estado.fase !== 'online') controlador.servidorPerdido();

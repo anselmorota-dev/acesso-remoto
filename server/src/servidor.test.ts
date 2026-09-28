@@ -5,7 +5,15 @@ import { afterEach, beforeEach, test } from 'node:test';
 import { WebSocket } from 'ws';
 import { PROTOCOL_VERSION } from '@acesso-remoto/shared';
 import { iniciarServidor, type OpcoesServidor, type ServidorSinalizacao } from './servidor.js';
-import { aguardar, conectarCliente, encerrarClientes, registrarCliente } from './auxiliares-teste.js';
+import {
+  aguardar,
+  completarRegistro,
+  conectarCliente,
+  encerrarClientes,
+  novaIdentidade,
+  registrarCliente,
+} from './auxiliares-teste.js';
+import { InstalacoesEmMemoria } from './instalacoes.js';
 
 let servidor: ServidorSinalizacao;
 
@@ -58,6 +66,8 @@ test('mensagens inválidas recebem erro sem derrubar a conexão', async () => {
     { tipo: 'desconhecido' },
     { tipo: 'registrar' },
     { tipo: 'registrar', versao: 'um' },
+    { tipo: 'registrar', versao: PROTOCOL_VERSION, chavePublica: 'curta-demais' },
+    { tipo: 'provar', assinatura: 'nao-e-assinatura' },
   ];
   for (const invalida of invalidas) {
     cliente.enviar(invalida);
@@ -69,8 +79,7 @@ test('mensagens inválidas recebem erro sem derrubar a conexão', async () => {
   assert.equal(resposta.tipo === 'erro' && resposta.codigo, 'mensagem_invalida');
 
   // Depois dos erros, ainda consegue se registrar normalmente.
-  cliente.enviar({ tipo: 'registrar', versao: PROTOCOL_VERSION });
-  assert.equal((await cliente.proxima()).tipo, 'registrado');
+  assert.match(await completarRegistro(cliente, novaIdentidade()), /^[1-9]\d{8}$/);
 });
 
 test('mensagens que exigem ID são recusadas antes do registro', async () => {
@@ -110,13 +119,118 @@ test('heartbeat derruba conexões que não respondem ao ping', async () => {
   const saudavel = await conectarRegistrado();
   // ...já este simula uma conexão morta: não responde pong.
   const morto = await conectar({ autoPong: false });
-  morto.enviar({ tipo: 'registrar', versao: PROTOCOL_VERSION });
-  await morto.proxima();
+  await completarRegistro(morto, novaIdentidade());
   assert.equal(servidor.quantidadeRegistrados(), 2);
 
   await morto.fechado;
   await aguardar(() => servidor.quantidadeRegistrados() === 1);
   assert.equal(saudavel.socket.readyState, WebSocket.OPEN);
+});
+
+// ---------------------------------------------------------------------------
+// ID fixo por instalação (identidade com chave pública + desafio)
+// ---------------------------------------------------------------------------
+
+test('a mesma instalação recebe sempre o mesmo ID, mesmo depois de reconectar', async () => {
+  const identidade = novaIdentidade();
+  const primeira = await registrarCliente(servidor.porta, identidade);
+  primeira.socket.close();
+  await aguardar(() => servidor.quantidadeRegistrados() === 0);
+  const segunda = await registrarCliente(servidor.porta, identidade);
+  assert.equal(segunda.id, primeira.id);
+});
+
+test('com repositório persistente, o ID sobrevive a reiniciar o servidor', async () => {
+  const instalacoes = new InstalacoesEmMemoria(); // faz o papel do banco
+  await servidor.fechar();
+  await subir({ instalacoes });
+  const identidade = novaIdentidade();
+  const antes = await registrarCliente(servidor.porta, identidade);
+
+  encerrarClientes();
+  await servidor.fechar();
+  await subir({ instalacoes });
+  const depois = await registrarCliente(servidor.porta, identidade);
+  assert.equal(depois.id, antes.id);
+});
+
+test('registrar sem chave pública é recusado', async () => {
+  const cliente = await conectar();
+  cliente.enviar({ tipo: 'registrar', versao: PROTOCOL_VERSION });
+  const resposta = await cliente.proxima();
+  assert.equal(resposta.tipo === 'erro' && resposta.codigo, 'mensagem_invalida');
+});
+
+test('assinatura de outra chave é recusada e a conexão fechada', async () => {
+  const dono = novaIdentidade();
+  const impostor = novaIdentidade();
+  const cliente = await conectar();
+  // O impostor apresenta a chave pública do dono, mas não tem a chave privada dele.
+  cliente.enviar({ tipo: 'registrar', versao: PROTOCOL_VERSION, chavePublica: dono.chavePublica });
+  const desafio = await cliente.proxima();
+  assert.ok(desafio.tipo === 'desafio');
+  cliente.enviar({ tipo: 'provar', assinatura: impostor.assinar(desafio.desafio) });
+  const resposta = await cliente.proxima();
+  assert.equal(resposta.tipo === 'erro' && resposta.codigo, 'assinatura_invalida');
+  assert.equal(await cliente.fechado, 1008);
+  assert.equal(servidor.quantidadeRegistrados(), 0);
+});
+
+test('provar sem desafio pendente é recusado', async () => {
+  const cliente = await conectar();
+  cliente.enviar({ tipo: 'provar', assinatura: 'A'.repeat(86) });
+  const resposta = await cliente.proxima();
+  assert.equal(resposta.tipo === 'erro' && resposta.codigo, 'assinatura_invalida');
+});
+
+test('assinatura de um desafio antigo não vale para um novo', async () => {
+  const identidade = novaIdentidade();
+  const primeira = await conectar();
+  primeira.enviar({ tipo: 'registrar', versao: PROTOCOL_VERSION, chavePublica: identidade.chavePublica });
+  const antigo = await primeira.proxima();
+  assert.ok(antigo.tipo === 'desafio');
+  const assinaturaAntiga = identidade.assinar(antigo.desafio);
+
+  // Quem capturasse essa assinatura não conseguiria usá-la numa outra conexão.
+  const outra = await conectar();
+  outra.enviar({ tipo: 'registrar', versao: PROTOCOL_VERSION, chavePublica: identidade.chavePublica });
+  const novo = await outra.proxima();
+  assert.ok(novo.tipo === 'desafio' && novo.desafio !== antigo.desafio);
+  outra.enviar({ tipo: 'provar', assinatura: assinaturaAntiga });
+  const resposta = await outra.proxima();
+  assert.equal(resposta.tipo === 'erro' && resposta.codigo, 'assinatura_invalida');
+});
+
+test('a mesma instalação conectando de novo substitui a conexão antiga', async () => {
+  const identidade = novaIdentidade();
+  const antiga = await registrarCliente(servidor.porta, identidade);
+  const nova = await registrarCliente(servidor.porta, identidade);
+  assert.equal(nova.id, antiga.id);
+
+  const aviso = await antiga.proxima();
+  assert.equal(aviso.tipo === 'erro' && aviso.codigo, 'substituida');
+  assert.equal(await antiga.fechado, 1008);
+  assert.equal(servidor.quantidadeRegistrados(), 1);
+  assert.equal(nova.socket.readyState, WebSocket.OPEN);
+});
+
+test('banco fora do ar: o app recebe "indisponivel" e pode tentar de novo', async () => {
+  await servidor.fechar();
+  await subir({
+    instalacoes: {
+      idDaChave: () => Promise.reject(new Error('banco fora do ar')),
+      fechar: async () => {},
+    },
+  });
+  const identidade = novaIdentidade();
+  const cliente = await conectar();
+  cliente.enviar({ tipo: 'registrar', versao: PROTOCOL_VERSION, chavePublica: identidade.chavePublica });
+  const desafio = await cliente.proxima();
+  assert.ok(desafio.tipo === 'desafio');
+  cliente.enviar({ tipo: 'provar', assinatura: identidade.assinar(desafio.desafio) });
+  const resposta = await cliente.proxima();
+  assert.equal(resposta.tipo === 'erro' && resposta.codigo, 'indisponivel');
+  assert.equal(await cliente.fechado, 1011); // 1011 = erro interno do servidor
 });
 
 test('rota /saude responde ok', async () => {

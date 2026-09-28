@@ -18,6 +18,11 @@ export type Vinculo =
 export interface Conexao {
   readonly socket: WebSocket;
   id: IdCliente | null;
+  /**
+   * Registro em andamento: a chave apresentada e o desafio que ela precisa
+   * assinar. "provando" fica true enquanto o servidor busca o ID no banco.
+   */
+  registro: { chavePublica: string; desafio: string; provando?: boolean } | null;
   /** Vira false a cada ping e volta a true quando chega o pong. */
   viva: boolean;
   vinculo: Vinculo;

@@ -47,16 +47,52 @@ export const esquemaMotivoFalha = z.enum([
 export type MotivoFalha = z.infer<typeof esquemaMotivoFalha>;
 
 // ---------------------------------------------------------------------------
+// Identidade da instalação (ID fixo)
+// ---------------------------------------------------------------------------
+//
+// Cada instalação tem um par de chaves Ed25519. O servidor liga o ID fixo à
+// chave pública e, a cada conexão, pede que o app assine um desafio aleatório:
+// só quem tem a chave privada consegue usar aquele ID.
+
+/** Base64url sem preenchimento ("="), com o tamanho exato de N bytes. */
+const base64url = (bytes: number) => z.string().regex(new RegExp(`^[A-Za-z0-9_-]{${Math.ceil((bytes * 4) / 3)}}$`));
+
+/** Chave pública Ed25519 (32 bytes), em base64url. */
+export const esquemaChavePublica = base64url(32);
+/** Desafio aleatório do servidor (32 bytes), em base64url. */
+export const esquemaDesafio = base64url(32);
+/** Assinatura Ed25519 (64 bytes), em base64url. */
+export const esquemaAssinatura = base64url(64);
+
+/**
+ * O que é assinado de fato: um prefixo fixo + o desafio. O prefixo impede que
+ * uma assinatura feita para outro fim seja reaproveitada como prova de registro.
+ */
+export function mensagemDeRegistro(desafio: string): string {
+  return `acesso-remoto/registro/v1:${desafio}`;
+}
+
+// ---------------------------------------------------------------------------
 // App → servidor
 // ---------------------------------------------------------------------------
 
 export const esquemaMensagemDoCliente = z.discriminatedUnion('tipo', [
-  /** Primeira mensagem de toda conexão: pede um ID ao servidor. */
+  /**
+   * Primeira mensagem de toda conexão: apresenta a identidade da instalação
+   * (chave pública) e pede o ID dela. O servidor responde com um "desafio".
+   */
   z.object({
     tipo: z.literal('registrar'),
     /** Versão do protocolo do app, para o servidor recusar versões incompatíveis. */
     versao: z.number().int().nonnegative(),
+    /**
+     * Opcional só no esquema: um app antigo (sem identidade) precisa receber
+     * "versao_incompativel", e não "mensagem_invalida". O servidor a exige.
+     */
+    chavePublica: esquemaChavePublica.optional(),
   }),
+  /** Resposta ao desafio: prova que a instalação tem a chave privada. */
+  z.object({ tipo: z.literal('provar'), assinatura: esquemaAssinatura }),
   /** Visualizador pede para acessar o computador com o ID "destino". */
   z.object({ tipo: z.literal('conectar'), destino: esquemaId }),
   /** Anfitrião aceita ou recusa o pedido vindo de "origem". */
@@ -89,6 +125,12 @@ export const esquemaCodigoErro = z.enum([
   'pedido_inexistente',
   /** Enviou sinal WebRTC sem estar numa sessão. */
   'sem_sessao',
+  /** "provar" sem desafio pendente, ou assinatura que não confere com a chave. */
+  'assinatura_invalida',
+  /** Falha temporária do servidor (ex.: banco de dados fora do ar); tente de novo. */
+  'indisponivel',
+  /** A mesma instalação conectou de novo em outro lugar; esta conexão foi substituída. */
+  'substituida',
 ]);
 export type CodigoErro = z.infer<typeof esquemaCodigoErro>;
 
@@ -115,7 +157,9 @@ export const esquemaMotivoEncerramento = z.enum([
 export type MotivoEncerramento = z.infer<typeof esquemaMotivoEncerramento>;
 
 export const esquemaMensagemDoServidor = z.discriminatedUnion('tipo', [
-  /** Resposta ao "registrar": o ID que este app vai usar enquanto estiver conectado. */
+  /** Resposta ao "registrar": assine este desafio e responda com "provar". */
+  z.object({ tipo: z.literal('desafio'), desafio: esquemaDesafio }),
+  /** Resposta ao "provar" aceito: o ID fixo desta instalação. */
   z.object({ tipo: z.literal('registrado'), id: esquemaId }),
   z.object({ tipo: z.literal('erro'), codigo: esquemaCodigoErro, mensagem: z.string() }),
   /**

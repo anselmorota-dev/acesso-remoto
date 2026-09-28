@@ -1,6 +1,10 @@
 // Cliente do servidor de sinalização: mantém a conexão WebSocket aberta,
-// obtém o ID deste computador e reconecta sozinho quando a conexão cai.
+// obtém o ID fixo deste computador e reconecta sozinho quando a conexão cai.
 // Não mexe na interface: só informa mudanças de estado por callback.
+//
+// Registro (ID fixo): manda a chave pública da instalação, recebe um desafio,
+// devolve a assinatura (feita pelo main, que guarda a chave privada) e só
+// então recebe o ID.
 import {
   PROTOCOL_VERSION,
   decodificarMensagem,
@@ -15,13 +19,25 @@ export type EstadoSinalizacao =
   | { fase: 'online'; id: IdCliente }
   | { fase: 'offline'; proximaTentativaMs: number }
   /** O servidor usa outro protocolo; não adianta reconectar até atualizar o app. */
-  | { fase: 'incompativel'; mensagem: string };
+  | { fase: 'incompativel'; mensagem: string }
+  /**
+   * Esta instalação conectou de novo em outro lugar (ex.: a pasta de dados foi
+   * copiada para outro computador). Não reconecta, para não ficarem se derrubando.
+   */
+  | { fase: 'substituida' };
+
+/** Identidade da instalação; no app, quem assina é o main (window.api.identidade). */
+export interface IdentidadeCliente {
+  chavePublica(): Promise<string>;
+  assinarDesafio(desafio: string): Promise<string>;
+}
 
 export interface OpcoesSinalizacao {
   url: string;
+  identidade: IdentidadeCliente;
   aoMudarEstado: (estado: EstadoSinalizacao) => void;
   /** Mensagens do servidor além do registro (pedidos, sessão, sinais, erros). */
-  aoMensagem?: (mensagem: Exclude<MensagemDoServidor, { tipo: 'registrado' }>) => void;
+  aoMensagem?: (mensagem: Exclude<MensagemDoServidor, { tipo: 'registrado' | 'desafio' }>) => void;
   /**
    * Esperas entre tentativas de reconexão; a última se repete.
    * Crescem aos poucos para não sobrecarregar um servidor que está voltando.
@@ -81,10 +97,17 @@ export class ClienteSinalizacao {
     this.socket = socket;
 
     socket.addEventListener('open', () => {
-      this.enviar({ tipo: 'registrar', versao: this.opcoes.versaoProtocolo ?? PROTOCOL_VERSION });
+      this.opcoes.identidade
+        .chavePublica()
+        .then((chavePublica) => {
+          if (this.socket !== socket) return;
+          this.enviar({ tipo: 'registrar', versao: this.opcoes.versaoProtocolo ?? PROTOCOL_VERSION, chavePublica });
+        })
+        .catch((erro: unknown) => this.falhaNaIdentidade(socket, erro));
     });
 
     socket.addEventListener('message', (evento) => {
+      if (this.socket !== socket) return; // conexão antiga, já substituída
       // Tudo que vem da rede é validado antes de ser usado.
       const mensagem =
         typeof evento.data === 'string'
@@ -96,6 +119,14 @@ export class ClienteSinalizacao {
       }
 
       switch (mensagem.tipo) {
+        case 'desafio':
+          this.opcoes.identidade
+            .assinarDesafio(mensagem.desafio)
+            .then((assinatura) => {
+              if (this.socket === socket) this.enviar({ tipo: 'provar', assinatura });
+            })
+            .catch((erro: unknown) => this.falhaNaIdentidade(socket, erro));
+          break;
         case 'registrado':
           this.tentativasSeguidas = 0;
           this.mudarEstado({ fase: 'online', id: mensagem.id });
@@ -103,6 +134,8 @@ export class ClienteSinalizacao {
         case 'erro':
           if (mensagem.codigo === 'versao_incompativel') {
             this.mudarEstado({ fase: 'incompativel', mensagem: mensagem.mensagem });
+          } else if (mensagem.codigo === 'substituida') {
+            this.mudarEstado({ fase: 'substituida' });
           } else {
             console.warn(`[sinalizacao] erro do servidor: ${mensagem.codigo} — ${mensagem.mensagem}`);
             this.opcoes.aoMensagem?.(mensagem);
@@ -117,7 +150,7 @@ export class ClienteSinalizacao {
     socket.addEventListener('close', () => {
       if (this.socket !== socket) return; // conexão antiga, já substituída
       this.socket = null;
-      if (this.parado || this.estadoAtual.fase === 'incompativel') return;
+      if (this.parado || this.estadoAtual.fase === 'incompativel' || this.estadoAtual.fase === 'substituida') return;
 
       const esperas = this.opcoes.esperasReconexaoMs ?? ESPERAS_PADRAO;
       const espera = esperas[Math.min(this.tentativasSeguidas, esperas.length - 1)] ?? 10_000;
@@ -125,5 +158,11 @@ export class ClienteSinalizacao {
       this.mudarEstado({ fase: 'offline', proximaTentativaMs: espera });
       this.timerReconexao = setTimeout(() => this.conectar(), espera);
     });
+  }
+
+  /** Sem identidade não há registro: fecha e deixa a reconexão tentar de novo. */
+  private falhaNaIdentidade(socket: WebSocket, erro: unknown): void {
+    console.error('[sinalizacao] falha na identidade da instalação:', erro);
+    if (this.socket === socket) socket.close();
   }
 }

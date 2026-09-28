@@ -2,26 +2,37 @@
 // que tem o mesmo WebSocket global do navegador.
 import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
-import { iniciarServidor, type ServidorSinalizacao } from '@acesso-remoto/server/servidor';
+import { novaIdentidade, type IdentidadeTeste } from '@acesso-remoto/server/auxiliares-teste';
+import { InstalacoesEmMemoria } from '@acesso-remoto/server/instalacoes';
+import { iniciarServidor, type OpcoesServidor, type ServidorSinalizacao } from '@acesso-remoto/server/servidor';
 import { PROTOCOL_VERSION } from '@acesso-remoto/shared';
-import { ClienteSinalizacao, type EstadoSinalizacao } from './sinalizacao';
+import { ClienteSinalizacao, type EstadoSinalizacao, type IdentidadeCliente } from './sinalizacao';
 
 const limpezas: Array<() => unknown> = [];
 afterEach(async () => {
   for (const limpar of limpezas.splice(0).reverse()) await limpar();
 });
 
-async function subirServidor(porta = 0): Promise<ServidorSinalizacao> {
-  const servidor = await iniciarServidor({ porta, log: () => {} });
+async function subirServidor(porta = 0, opcoes: Partial<OpcoesServidor> = {}): Promise<ServidorSinalizacao> {
+  const servidor = await iniciarServidor({ porta, log: () => {}, ...opcoes });
   limpezas.push(() => servidor.fechar());
   return servidor;
 }
 
+/** Identidade de teste no formato que o cliente espera (no app, quem assina é o main). */
+function identidadeCliente(identidade: IdentidadeTeste = novaIdentidade()): IdentidadeCliente {
+  return {
+    chavePublica: async () => identidade.chavePublica,
+    assinarDesafio: async (desafio) => identidade.assinar(desafio),
+  };
+}
+
 /** Cria um cliente que registra todos os estados pelos quais passou. */
-function criarCliente(url: string, extras: { versaoProtocolo?: number } = {}) {
+function criarCliente(url: string, extras: { versaoProtocolo?: number; identidade?: IdentidadeCliente } = {}) {
   const estados: EstadoSinalizacao[] = [];
   const cliente = new ClienteSinalizacao({
     url,
+    identidade: identidadeCliente(),
     esperasReconexaoMs: [50, 100],
     aoMudarEstado: (estado) => estados.push(estado),
     ...extras,
@@ -67,20 +78,52 @@ test('fica offline e continua tentando enquanto não há servidor', async () => 
   assert.deepEqual(esperas.slice(0, 3), [50, 100, 100]);
 });
 
-test('reconecta e recebe um novo ID quando o servidor volta', async () => {
-  const primeiro = await subirServidor();
+test('reconecta quando o servidor volta e mantém o mesmo ID', async () => {
+  const instalacoes = new InstalacoesEmMemoria(); // faz o papel do banco (sobrevive ao reinício)
+  const primeiro = await subirServidor(0, { instalacoes });
   const porta = primeiro.porta;
   const { cliente, estados } = criarCliente(`ws://127.0.0.1:${porta}`);
   cliente.iniciar();
   await aguardar(() => cliente.estado.fase === 'online');
+  const idAntes = cliente.estado.fase === 'online' ? cliente.estado.id : '';
 
   await primeiro.fechar(); // servidor cai (ex.: Render reiniciou)
   await aguardar(() => cliente.estado.fase === 'offline');
 
-  const segundo = await subirServidor(porta); // volta na mesma porta
+  const segundo = await subirServidor(porta, { instalacoes }); // volta na mesma porta
   await aguardar(() => cliente.estado.fase === 'online');
   assert.equal(segundo.quantidadeRegistrados(), 1);
   assert.equal(estados.filter((e) => e.fase === 'online').length, 2);
+  assert.ok(cliente.estado.fase === 'online' && cliente.estado.id === idAntes);
+});
+
+test('outra cópia da mesma instalação conecta: a antiga para de tentar', async () => {
+  const servidor = await subirServidor();
+  const url = `ws://127.0.0.1:${servidor.porta}`;
+  const identidade = identidadeCliente();
+  const { cliente: antiga, estados } = criarCliente(url, { identidade });
+  antiga.iniciar();
+  await aguardar(() => antiga.estado.fase === 'online');
+
+  const { cliente: nova } = criarCliente(url, { identidade });
+  nova.iniciar();
+  await aguardar(() => antiga.estado.fase === 'substituida' && nova.estado.fase === 'online');
+  await new Promise((r) => setTimeout(r, 300)); // tempo de sobra para uma reconexão indevida
+  assert.equal(estados.at(-1)?.fase, 'substituida');
+  assert.equal(nova.estado.fase, 'online');
+  assert.equal(servidor.quantidadeRegistrados(), 1);
+});
+
+test('identidade com defeito não registra, mas continua tentando', async () => {
+  const servidor = await subirServidor();
+  const quebrada: IdentidadeCliente = {
+    chavePublica: () => Promise.reject(new Error('arquivo de identidade ilegível')),
+    assinarDesafio: () => Promise.reject(new Error('sem chave')),
+  };
+  const { cliente, estados } = criarCliente(`ws://127.0.0.1:${servidor.porta}`, { identidade: quebrada });
+  cliente.iniciar();
+  await aguardar(() => estados.filter((e) => e.fase === 'offline').length >= 2);
+  assert.equal(servidor.quantidadeRegistrados(), 0);
 });
 
 test('parar fecha a conexão e não tenta reconectar', async () => {

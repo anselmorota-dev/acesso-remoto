@@ -135,7 +135,8 @@ button:disabled {
   color: var(--alerta);
 }
 
-.status[data-fase='incompativel'] {
+.status[data-fase='incompativel'],
+.status[data-fase='substituida'] {
   color: var(--erro);
 }
 

@@ -119,12 +119,28 @@ Não tenho pressa: prefiro entender cada parte a avançar rápido.
 ## Estado atual
 Fase 1 concluída. Fase 2: 2.1 a 2.4 concluídas; 2.5 publicada e testada na mesma máquina,
 falta o teste entre duas redes (o usuário fará depois, com outro notebook). Fase 3: 3.1
-concluída. Próxima: 3.2 (ID fixo por instalação; apresentar as opções de armazenamento).
+concluída; 3.2 implementada e testada localmente, falta o usuário criar o banco no Neon e
+cadastrar `DATABASE_URL` no Render, e então conferir que o ID sobrevive a reinícios do servidor.
 
 Decisões já tomadas:
-- ID temporário: sorteado pelo servidor a cada conexão, guardado só em memória.
-  ID fixo por instalação (com segredo de posse) é a etapa 3.2. O plano gratuito do Render não
-  guarda arquivos entre reinícios: precisa de banco externo gratuito ou outra solução.
+- ID fixo por instalação (3.2, protocolo v3): cada instalação tem um par Ed25519
+  (`main/chaves-instalacao.ts`, `userData/identidade.json`, chave privada cifrada com
+  `safeStorage`/DPAPI). Registro: `registrar {versao, chavePublica}` → `desafio {desafio}` →
+  `provar {assinatura}` → `registrado {id}`. Assina-se `mensagemDeRegistro(desafio)` (prefixo
+  fixo + desafio de 32 bytes aleatórios, uso único). A versão é checada antes da chave (app
+  antigo recebe `versao_incompativel`). Mesma instalação conectando de novo substitui a antiga
+  (`erro substituida`; o app para de reconectar, fase `substituida`). Banco fora do ar →
+  `erro indisponivel` + fechamento 1011 (o app reconecta). Todos recebem ID fixo.
+- IDs no servidor: `RepositorioInstalacoes` (`server/src/instalacoes.ts`): em memória sem
+  `DATABASE_URL` (dev/testes), Postgres com ela (`instalacoes-postgres.ts`, driver `pg`, tabela
+  `instalacoes` criada na partida). Banco: Neon, plano gratuito (0,5 GB, suspende após 5 min).
+  Teste de integração só roda com `TESTE_DATABASE_URL`.
+- `safeStorage` no Windows depende da chave no arquivo `Local State`, que o Chromium grava com
+  atraso (~10 s) ou ao fechar: se o app for derrubado nos primeiros segundos da 1ª execução, a
+  identidade não decifra depois e vira outra (ID novo). Aceito como risco pequeno; alternativa
+  seria guardar a chave sem cifrar (protegida só pela conta do Windows).
+- Instância única por pasta de dados (`requestSingleInstanceLock`): duas cópias com a mesma
+  identidade se derrubariam; abrir de novo foca a janela existente.
 - Senha (3.1): `@node-rs/argon2` (sem script de instalação; o `crypto.argon2` do Node não funciona
   no Electron, que usa BoringSSL), argon2id padrão da biblioteca, 64 MiB, 3 passagens (~0,3 s).
   Mínimo 8 caracteres (escolha do usuário), máximo 128, sem regras de composição; normalizada
@@ -133,10 +149,10 @@ Decisões já tomadas:
   Alterar/remover exige a senha atual e é bloqueado durante sessão como anfitrião (o main usa
   o estado do indicador: `sessaoComoAnfitriao()`), para o visualizador não criar acesso para si.
   IPC `senha:estado|definir|remover` (invoke) só da janela principal; o renderer nunca vê o hash.
-- Protocolo: app manda `registrar {versao}` → servidor responde `registrado {id}` ou `erro {codigo}`.
+- Protocolo: registro com desafio (ver ID fixo acima); erros vêm como `erro {codigo}`.
   Servidor desconecta quem não se registra em 10 s e usa ping/pong a cada 30 s.
 - A conexão com o servidor fica no renderer (`renderer/sinalizacao.ts`), junto do WebRTC;
-  reconecta sozinha (esperas de 1, 2, 5 e 10 s) e recebe ID novo a cada reconexão.
+  reconecta sozinha (esperas de 1, 2, 5 e 10 s) e mantém o ID fixo da instalação.
 - Aceite do anfitrião implementado já na 1.4 (caixa <dialog>, foco inicial em Recusar,
   Esc = recusar), para cumprir a regra de segurança desde a primeira conexão.
 - Sessões no servidor (`server/src/sessoes.ts`): conectar → pedido_conexao → responder_pedido

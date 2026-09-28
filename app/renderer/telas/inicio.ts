@@ -96,6 +96,10 @@ export function montarTelaInicio(opcoes: OpcoesTelaInicio): TelaInicio {
         case 'incompativel':
           status.textContent = `Versão do app incompatível com o servidor. Atualize o app. (${estado.mensagem})`;
           break;
+        case 'substituida':
+          status.textContent =
+            'Este computador se conectou de novo em outro lugar (o app foi copiado para outra máquina?). Reabra o app para reconectar.';
+          break;
       }
 
       atualizarFormulario();

@@ -5,9 +5,12 @@ import { app, BrowserWindow, Menu } from 'electron';
 import { PROTOCOL_VERSION } from '@acesso-remoto/shared';
 import { configurarAtencao } from './atencao';
 import { configurarCaptura } from './captura';
+import { configurarIdentidade } from './identidade';
 import { configurarIndicador } from './indicador';
 import { configurarInput } from './input';
 import { configurarSenha } from './senha';
+
+let janelaPrincipal: BrowserWindow | null = null;
 
 function criarJanelaPrincipal(): void {
   const janela = new BrowserWindow({
@@ -24,6 +27,11 @@ function criarJanelaPrincipal(): void {
       nodeIntegration: false,
       sandbox: true,
     },
+  });
+
+  janelaPrincipal = janela;
+  janela.on('closed', () => {
+    if (janelaPrincipal === janela) janelaPrincipal = null;
   });
 
   // Mostra a janela só quando o conteúdo estiver pronto, evitando tela branca.
@@ -43,23 +51,38 @@ function criarJanelaPrincipal(): void {
   }
 }
 
-void app.whenReady().then(() => {
-  console.log(`[main] app pronto (protocolo v${PROTOCOL_VERSION})`);
-  // Sem o menu padrão do Electron: seus atalhos (Ctrl+W fecha, Ctrl+R recarrega,
-  // Alt abre o menu) agiriam no app em vez de ir para o computador remoto.
-  Menu.setApplicationMenu(null);
-  configurarCaptura();
-  configurarAtencao();
-  configurarIndicador();
-  configurarSenha();
-  configurarInput(); // antes de criar a janela: registra a limpeza ao fechá-la
-  criarJanelaPrincipal();
-
-  // macOS: recria a janela ao clicar no ícone do dock se nenhuma estiver aberta.
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) criarJanelaPrincipal();
+// Uma instância por pasta de dados: duas cópias do app teriam a mesma
+// identidade (mesmo ID) e ficariam derrubando uma à outra no servidor.
+// Abrir de novo só traz a janela que já está aberta para frente.
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    if (!janelaPrincipal) return;
+    if (janelaPrincipal.isMinimized()) janelaPrincipal.restore();
+    janelaPrincipal.show();
+    janelaPrincipal.focus();
   });
-});
+
+  void app.whenReady().then(() => {
+    console.log(`[main] app pronto (protocolo v${PROTOCOL_VERSION})`);
+    // Sem o menu padrão do Electron: seus atalhos (Ctrl+W fecha, Ctrl+R recarrega,
+    // Alt abre o menu) agiriam no app em vez de ir para o computador remoto.
+    Menu.setApplicationMenu(null);
+    configurarCaptura();
+    configurarAtencao();
+    configurarIndicador();
+    configurarIdentidade();
+    configurarSenha();
+    configurarInput(); // antes de criar a janela: registra a limpeza ao fechá-la
+    criarJanelaPrincipal();
+
+    // macOS: recria a janela ao clicar no ícone do dock se nenhuma estiver aberta.
+    app.on('activate', () => {
+      if (BrowserWindow.getAllWindows().length === 0) criarJanelaPrincipal();
+    });
+  });
+}
 
 // No Windows/Linux, fechar a última janela encerra o app.
 app.on('window-all-closed', () => {

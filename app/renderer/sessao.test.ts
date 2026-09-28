@@ -4,6 +4,7 @@
 // com o app aberto.
 import assert from 'node:assert/strict';
 import { afterEach, beforeEach, test } from 'node:test';
+import { novaIdentidade } from '@acesso-remoto/server/auxiliares-teste';
 import { iniciarServidor, type ServidorSinalizacao } from '@acesso-remoto/server/servidor';
 import type { EventoInput, Sinal } from '@acesso-remoto/shared';
 import { ErroCaptura } from './captura';
@@ -60,8 +61,13 @@ async function criarApp() {
   const inputs: EventoInput[] = [];
   let liberacoes = 0;
   let id = '';
+  const identidade = novaIdentidade();
   const sinalizacao: ClienteSinalizacao = new ClienteSinalizacao({
     url: `ws://127.0.0.1:${servidor.porta}`,
+    identidade: {
+      chavePublica: async () => identidade.chavePublica,
+      assinarDesafio: async (desafio) => identidade.assinar(desafio),
+    },
     esperasReconexaoMs: [50],
     aoMudarEstado: (estado) => {
       if (estado.fase === 'online') id = estado.id;

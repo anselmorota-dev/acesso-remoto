@@ -5,7 +5,9 @@
   "description": "Servidor de sinalização (IDs e conexão entre pares)",
   "type": "module",
   "exports": {
-    "./servidor": "./src/servidor.ts"
+    "./servidor": "./src/servidor.ts",
+    "./instalacoes": "./src/instalacoes.ts",
+    "./auxiliares-teste": "./src/auxiliares-teste.ts"
   },
   "scripts": {
     "dev": "tsx watch src/index.ts",
@@ -15,11 +17,13 @@
   },
   "dependencies": {
     "@acesso-remoto/shared": "*",
+    "pg": "^8.23.0",
     "tsx": "^4.23.15",
     "ws": "^8.22.0"
   },
   "devDependencies": {
     "@types/node": "^24",
+    "@types/pg": "^8.23.1",
     "@types/ws": "^8.18.1"
   }
 }

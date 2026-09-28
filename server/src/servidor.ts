@@ -1,6 +1,7 @@
-// Servidor de sinalização: aceita conexões WebSocket dos apps, atribui um
-// ID a cada um e repassa as mensagens de sinalização entre os pares.
-// Nunca recebe vídeo nem comandos de input, só mensagens de sinalização.
+// Servidor de sinalização: aceita conexões WebSocket dos apps, identifica
+// cada instalação pelo seu ID fixo e repassa as mensagens de sinalização
+// entre os pares. Nunca recebe vídeo nem comandos de input.
+import { createPublicKey, randomBytes, verify } from 'node:crypto';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { WebSocket, WebSocketServer, type RawData } from 'ws';
@@ -8,12 +9,13 @@ import {
   PROTOCOL_VERSION,
   decodificarMensagem,
   esquemaMensagemDoCliente,
+  mensagemDeRegistro,
   type CodigoErro,
   type IdCliente,
   type MensagemDoServidor,
 } from '@acesso-remoto/shared';
 import type { Conexao, ConexaoRegistrada } from './conexao.js';
-import { gerarId } from './ids.js';
+import { InstalacoesEmMemoria, type RepositorioInstalacoes } from './instalacoes.js';
 import { criarGerenciadorSessoes } from './sessoes.js';
 
 export interface OpcoesServidor {
@@ -29,6 +31,8 @@ export interface OpcoesServidor {
   tamanhoMaximoMensagem?: number;
   /** Função de log; nos testes pode ser silenciada. */
   log?: (mensagem: string) => void;
+  /** Onde ficam os IDs fixos das instalações (padrão: em memória). */
+  instalacoes?: RepositorioInstalacoes;
 }
 
 export interface ServidorSinalizacao {
@@ -42,6 +46,17 @@ export interface ServidorSinalizacao {
 
 // Códigos de fechamento do WebSocket (RFC 6455).
 const FECHAMENTO_VIOLACAO_POLITICA = 1008;
+const FECHAMENTO_ERRO_INTERNO = 1011;
+
+/** Confere a assinatura Ed25519 do desafio. Chave ou assinatura malformada = não confere. */
+function assinaturaConfere(chavePublica: string, desafio: string, assinatura: string): boolean {
+  try {
+    const chave = createPublicKey({ key: { kty: 'OKP', crv: 'Ed25519', x: chavePublica }, format: 'jwk' });
+    return verify(null, Buffer.from(mensagemDeRegistro(desafio)), chave, Buffer.from(assinatura, 'base64url'));
+  } catch {
+    return false;
+  }
+}
 
 export async function iniciarServidor(opcoes: OpcoesServidor): Promise<ServidorSinalizacao> {
   const {
@@ -50,6 +65,7 @@ export async function iniciarServidor(opcoes: OpcoesServidor): Promise<ServidorS
     prazoRespostaPedidoMs = 30_000,
     tamanhoMaximoMensagem = 64 * 1024,
     log = console.log,
+    instalacoes = new InstalacoesEmMemoria(),
   } = opcoes;
 
   const conexoes = new Set<Conexao>();
@@ -86,11 +102,19 @@ export async function iniciarServidor(opcoes: OpcoesServidor): Promise<ServidorS
     log,
   });
 
-  function registrar(conexao: Conexao, versao: number): void {
-    if (conexao.id) {
-      enviarErro(conexao, 'ja_registrado', `Esta conexão já tem o ID ${conexao.id}`);
+  // Registro em duas etapas (ID fixo por instalação):
+  //   1. "registrar" traz a chave pública; o servidor responde um desafio aleatório;
+  //   2. "provar" traz a assinatura do desafio; se confere, o servidor busca
+  //      (ou cria) o ID ligado àquela chave e responde "registrado".
+  // Só quem tem a chave privada consegue usar o ID da instalação.
+
+  function registrar(conexao: Conexao, versao: number, chavePublica: string | undefined): void {
+    if (conexao.id || conexao.registro) {
+      enviarErro(conexao, 'ja_registrado', 'Esta conexão já se registrou');
       return;
     }
+    // A versão vem antes da chave: um app antigo (sem chave) precisa saber
+    // que está desatualizado, e não receber "mensagem inválida".
     if (versao !== PROTOCOL_VERSION) {
       enviarErro(
         conexao,
@@ -100,7 +124,57 @@ export async function iniciarServidor(opcoes: OpcoesServidor): Promise<ServidorS
       conexao.socket.close(FECHAMENTO_VIOLACAO_POLITICA, 'versao_incompativel');
       return;
     }
-    const id = gerarId((candidato) => registrados.has(candidato));
+    if (!chavePublica) {
+      enviarErro(conexao, 'mensagem_invalida', 'Falta a chave pública da instalação');
+      return;
+    }
+    const desafio = randomBytes(32).toString('base64url');
+    conexao.registro = { chavePublica, desafio };
+    enviar(conexao, { tipo: 'desafio', desafio });
+  }
+
+  async function provar(conexao: Conexao, assinatura: string): Promise<void> {
+    const registro = conexao.registro;
+    if (conexao.id) {
+      enviarErro(conexao, 'ja_registrado', `Esta conexão já tem o ID ${conexao.id}`);
+      return;
+    }
+    if (!registro || registro.provando) {
+      enviarErro(conexao, 'assinatura_invalida', 'Nenhum desafio pendente: envie "registrar" antes');
+      return;
+    }
+    if (!assinaturaConfere(registro.chavePublica, registro.desafio, assinatura)) {
+      conexao.registro = null; // o desafio vale uma vez só
+      enviarErro(conexao, 'assinatura_invalida', 'A assinatura não confere com a chave pública');
+      conexao.socket.close(FECHAMENTO_VIOLACAO_POLITICA, 'assinatura_invalida');
+      return;
+    }
+    registro.provando = true;
+
+    let id: IdCliente;
+    try {
+      id = await instalacoes.idDaChave(registro.chavePublica);
+    } catch (erro) {
+      log(`[server] falha ao buscar o ID da instalação: ${(erro as Error).message}`);
+      enviarErro(conexao, 'indisponivel', 'Servidor temporariamente indisponível; tente de novo');
+      conexao.socket.close(FECHAMENTO_ERRO_INTERNO, 'indisponivel');
+      return;
+    }
+    // A conexão pode ter caído enquanto o banco respondia.
+    if (conexao.socket.readyState !== WebSocket.OPEN) return;
+
+    // A mesma instalação já estava conectada (ex.: rede caiu e voltou antes
+    // do servidor perceber): a conexão nova, que provou a posse, fica com o ID.
+    const antiga = registrados.get(id);
+    if (antiga && antiga !== conexao) {
+      sessoes.encerrar(antiga, 'parceiro_desconectou');
+      registrados.delete(id);
+      antiga.id = null;
+      enviarErro(antiga, 'substituida', 'Este computador conectou de novo em outro lugar');
+      antiga.socket.close(FECHAMENTO_VIOLACAO_POLITICA, 'substituida');
+    }
+
+    conexao.registro = null;
     conexao.id = id;
     registrados.set(id, conexao);
     enviar(conexao, { tipo: 'registrado', id });
@@ -118,7 +192,14 @@ export async function iniciarServidor(opcoes: OpcoesServidor): Promise<ServidorS
     }
 
     if (mensagem.tipo === 'registrar') {
-      registrar(conexao, mensagem.versao);
+      registrar(conexao, mensagem.versao, mensagem.chavePublica);
+      return;
+    }
+    if (mensagem.tipo === 'provar') {
+      provar(conexao, mensagem.assinatura).catch((erro: unknown) => {
+        log(`[server] erro inesperado no registro: ${(erro as Error).message}`);
+        conexao.socket.close(FECHAMENTO_ERRO_INTERNO, 'indisponivel');
+      });
       return;
     }
 
@@ -146,7 +227,7 @@ export async function iniciarServidor(opcoes: OpcoesServidor): Promise<ServidorS
   }
 
   wss.on('connection', (socket) => {
-    const conexao: Conexao = { socket, id: null, viva: true, vinculo: { tipo: 'livre' } };
+    const conexao: Conexao = { socket, id: null, registro: null, viva: true, vinculo: { tipo: 'livre' } };
     conexoes.add(conexao);
 
     // Quem conecta e não se registra a tempo é desconectado, para não
@@ -170,7 +251,8 @@ export async function iniciarServidor(opcoes: OpcoesServidor): Promise<ServidorS
       conexoes.delete(conexao);
       // Avisa o outro lado de um pedido ou sessão em andamento.
       sessoes.encerrar(conexao, 'parceiro_desconectou');
-      if (conexao.id) {
+      // Só libera o ID se ele ainda for desta conexão (e não de uma que a substituiu).
+      if (conexao.id && registrados.get(conexao.id) === conexao) {
         registrados.delete(conexao.id);
         log(`[server] saiu ${conexao.id} (online: ${registrados.size})`);
       }

@@ -1,7 +1,23 @@
 // Funções auxiliares usadas pelos testes do servidor (não é um arquivo de teste).
 import assert from 'node:assert/strict';
+import { generateKeyPairSync, sign } from 'node:crypto';
 import { WebSocket } from 'ws';
-import { PROTOCOL_VERSION, type MensagemDoServidor } from '@acesso-remoto/shared';
+import { PROTOCOL_VERSION, mensagemDeRegistro, type MensagemDoServidor } from '@acesso-remoto/shared';
+
+/** Identidade de uma instalação (par de chaves Ed25519), como o app gera. */
+export interface IdentidadeTeste {
+  chavePublica: string;
+  assinar(desafio: string): string;
+}
+
+export function novaIdentidade(): IdentidadeTeste {
+  const { publicKey, privateKey } = generateKeyPairSync('ed25519');
+  const chavePublica = publicKey.export({ format: 'jwk' }).x as string;
+  return {
+    chavePublica,
+    assinar: (desafio) => sign(null, Buffer.from(mensagemDeRegistro(desafio)), privateKey).toString('base64url'),
+  };
+}
 
 const abertos: WebSocket[] = [];
 
@@ -60,13 +76,22 @@ export async function conectarCliente(porta: number, opcoes: { autoPong?: boolea
   };
 }
 
-/** Conecta e registra; devolve o cliente com seu ID. */
-export async function registrarCliente(porta: number) {
-  const cliente = await conectarCliente(porta);
-  cliente.enviar({ tipo: 'registrar', versao: PROTOCOL_VERSION });
+/** Faz o registro numa conexão já aberta (registrar → desafio → provar); devolve o ID. */
+export async function completarRegistro(cliente: ClienteTeste, identidade: IdentidadeTeste): Promise<string> {
+  cliente.enviar({ tipo: 'registrar', versao: PROTOCOL_VERSION, chavePublica: identidade.chavePublica });
+  const desafio = await cliente.proxima();
+  assert.equal(desafio.tipo, 'desafio');
+  cliente.enviar({ tipo: 'provar', assinatura: identidade.assinar(desafio.desafio) });
   const resposta = await cliente.proxima();
   assert.equal(resposta.tipo, 'registrado');
-  return { ...cliente, id: resposta.id };
+  return resposta.id;
+}
+
+/** Conecta e registra; devolve o cliente com seu ID e sua identidade. */
+export async function registrarCliente(porta: number, identidade: IdentidadeTeste = novaIdentidade()) {
+  const cliente = await conectarCliente(porta);
+  const id = await completarRegistro(cliente, identidade);
+  return { ...cliente, id, identidade };
 }
 
 /** Espera uma condição ficar verdadeira (para efeitos assíncronos no servidor). */

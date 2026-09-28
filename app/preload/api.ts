@@ -18,7 +18,11 @@ export const CANAL_SENHA_ESTADO = 'senha:estado';
 export const CANAL_SENHA_DEFINIR = 'senha:definir';
 export const CANAL_SENHA_REMOVER = 'senha:remover';
 
-export type ErroSenha = ProblemaSenha | 'senha_atual_incorreta' | 'sessao_ativa';
+/** Canais IPC renderer ⇄ main (com resposta) da identidade da instalação (ID fixo). */
+export const CANAL_IDENTIDADE_CHAVE = 'identidade:chave-publica';
+export const CANAL_IDENTIDADE_ASSINAR = 'identidade:assinar';
+
+export type ErroSenha =ProblemaSenha | 'senha_atual_incorreta' | 'sessao_ativa';
 export type ResultadoSenha = { ok: true } | { ok: false; erro: ErroSenha };
 
 export interface ApiDoPreload {
@@ -43,6 +47,14 @@ export interface ApiDoPreload {
     indicar(parceiro: string | null): void;
     /** Registra quem trata o pedido de encerrar feito pelo indicador. */
     aoPedirEncerramento(tratar: () => void): void;
+  };
+  /**
+   * Identidade da instalação (ID fixo): o registro no servidor usa a chave
+   * pública e a assinatura de um desafio. A chave privada fica no main.
+   */
+  readonly identidade: {
+    chavePublica(): Promise<string>;
+    assinarDesafio(desafio: string): Promise<string>;
   };
   /**
    * Senha de acesso não supervisionado. O hash fica só no main: daqui só se
