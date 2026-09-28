@@ -95,7 +95,7 @@ Não tenho pressa: prefiro entender cada parte a avançar rápido.
 
 ### Fase 3 — Acesso não supervisionado
 - [x] 3.1 Definir senha no anfitrião (hash local)
-- [ ] 3.2 ID fixo por instalação (o servidor lembra cada instalação; exige armazenamento persistente)
+- [x] 3.2 ID fixo por instalação (o servidor lembra cada instalação; exige armazenamento persistente)
 - [ ] 3.3 Conectar com senha sem precisar de aceite
 - [ ] 3.4 Iniciar com o sistema e ficar na bandeja
 - [ ] 3.5 Limite de tentativas no servidor
@@ -119,8 +119,8 @@ Não tenho pressa: prefiro entender cada parte a avançar rápido.
 ## Estado atual
 Fase 1 concluída. Fase 2: 2.1 a 2.4 concluídas; 2.5 publicada e testada na mesma máquina,
 falta o teste entre duas redes (o usuário fará depois, com outro notebook). Fase 3: 3.1
-concluída; 3.2 implementada e testada localmente, falta o usuário criar o banco no Neon e
-cadastrar `DATABASE_URL` no Render, e então conferir que o ID sobrevive a reinícios do servidor.
+e 3.2 concluídas (ID fixo no Neon: a mesma chave manteve o ID em 3 instâncias diferentes do
+servidor no Render, 28/09/2026). Próxima: 3.3 (conectar com senha, sem aceite).
 
 Decisões já tomadas:
 - ID fixo por instalação (3.2, protocolo v3): cada instalação tem um par Ed25519
@@ -134,7 +134,9 @@ Decisões já tomadas:
 - IDs no servidor: `RepositorioInstalacoes` (`server/src/instalacoes.ts`): em memória sem
   `DATABASE_URL` (dev/testes), Postgres com ela (`instalacoes-postgres.ts`, driver `pg`, tabela
   `instalacoes` criada na partida). Banco: Neon, plano gratuito (0,5 GB, suspende após 5 min).
-  Teste de integração só roda com `TESTE_DATABASE_URL`.
+  Teste de integração só roda com `TESTE_DATABASE_URL`. `DATABASE_URL` cadastrada à mão no
+  Render (Environment → Edit), nunca no git nem no chat. O servidor troca `sslmode=require`
+  por `verify-full` (`comCertificadoVerificado`): o pg 9 vai enfraquecer o "require".
 - `safeStorage` no Windows depende da chave no arquivo `Local State`, que o Chromium grava com
   atraso (~10 s) ou ao fechar: se o app for derrubado nos primeiros segundos da 1ª execução, a
   identidade não decifra depois e vira outra (ID novo). Aceito como risco pequeno; alternativa
