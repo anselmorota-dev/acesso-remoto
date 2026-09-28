@@ -24,6 +24,7 @@ import {
   type Papel,
   type Sinal,
 } from '@acesso-remoto/shared';
+import { serializarAreaTransferencia } from './area-transferencia';
 import { capturarTela } from './captura';
 
 export type EstadoPar = 'conectando' | 'conectado' | 'falhou' | 'fechado';
@@ -46,6 +47,8 @@ export interface OpcoesPar {
   aoEncerrarPeloParceiro?: (motivo: MotivoFimPeloCanal | undefined) => void;
   /** O canal fechou sem aviso (o outro lado fechou a conexão ou ela se perdeu de vez). */
   aoPerderCanal?: () => void;
+  /** O outro lado copiou um texto (área de transferência compartilhada; já validado). */
+  aoReceberAreaTransferencia?: (texto: string) => void;
 }
 
 /** O que o controlador de sessão precisa de uma conexão (permite trocar por um falso nos testes). */
@@ -62,6 +65,11 @@ export interface Par {
   confirmarAutenticacao(): void;
   /** Anfitrião: renegocia os caminhos de rede depois de a conexão direta cair. */
   reiniciarIce(): Promise<void>;
+  /**
+   * Envia o texto copiado neste computador. false: grande demais para uma
+   * mensagem. Com o canal ainda fechado, guarda o último e envia ao abrir.
+   */
+  enviarAreaTransferencia(texto: string): boolean;
   /**
    * Fecha a conexão. Com "aviso", antes manda pelo canal que a sessão acabou
    * (o outro lado fica sabendo mesmo com o servidor fora do ar).
@@ -98,6 +106,8 @@ export class ConexaoPar implements Par {
   private enviadorVideo: RTCRtpSender | null = null;
   /** Visualizador: senha esperando o canal abrir (acesso com senha). */
   private senhaPendente: string | null = null;
+  /** Texto copiado esperando o canal abrir (só o último importa). */
+  private areaPendente: string | null = null;
 
   constructor(opcoes: OpcoesPar) {
     this.opcoes = opcoes;
@@ -225,6 +235,16 @@ export class ConexaoPar implements Par {
     this.enviarNoCanal(evento);
   }
 
+  enviarAreaTransferencia(texto: string): boolean {
+    // O limite de fato é o menor entre o nosso e o que a conexão negociou.
+    const negociado = this.pc.sctp?.maxMessageSize || Infinity;
+    const mensagem = serializarAreaTransferencia(texto, Math.min(TAMANHO_MAXIMO_MENSAGEM_CANAL, negociado));
+    if (!mensagem) return false;
+    if (this.canal?.readyState === 'open') this.canal.send(mensagem);
+    else this.areaPendente = mensagem;
+    return true;
+  }
+
   fechar(aviso?: { motivo?: MotivoFimPeloCanal }): void {
     if (this.estado === 'fechado') return;
     clearInterval(this.timerPing);
@@ -297,6 +317,11 @@ export class ConexaoPar implements Par {
         this.enviarNoCanal({ tipo: 'senha', senha: this.senhaPendente });
         this.senhaPendente = null;
       }
+      // Texto copiado antes de o canal abrir (ex.: o visualizador, no início da sessão).
+      if (this.areaPendente !== null) {
+        canal.send(this.areaPendente);
+        this.areaPendente = null;
+      }
     });
     canal.addEventListener('close', () => {
       clearInterval(this.timerPing);
@@ -336,6 +361,9 @@ export class ConexaoPar implements Par {
         break;
       case 'encerrar':
         this.opcoes.aoEncerrarPeloParceiro?.(mensagem.motivo);
+        break;
+      case 'area_transferencia':
+        this.opcoes.aoReceberAreaTransferencia?.(mensagem.texto);
         break;
       default:
         // Todo o resto é evento de input (mouse e teclado); o TypeScript

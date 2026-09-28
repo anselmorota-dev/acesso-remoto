@@ -14,6 +14,9 @@ import { montarTelaVisualizacao } from './telas/visualizacao';
 let estadoSinalizacao: EstadoSinalizacao = { fase: 'conectando' };
 let estadoSessao: EstadoSessao = { fase: 'livre' };
 
+/** A área de transferência é compartilhada só em sessão liberada (aceite ou senha conferida). */
+const compartilhaAreaTransferencia = (estado: EstadoSessao) => estado.fase === 'em_sessao' && estado.liberada;
+
 const telaInicio = montarTelaInicio({
   aoConectar: (idRemoto, senha) => controlador.conectar(idRemoto, senha),
 });
@@ -70,6 +73,13 @@ const controlador = new ControladorSessao({
     // Em sessão, nenhum dos dois computadores suspende nem apaga a tela.
     const emSessao = estado.fase === 'em_sessao';
     if (emSessao !== (estadoSessao.fase === 'em_sessao')) window.api.sessao.manterAcordado(emSessao);
+    // Área de transferência compartilhada: só com a sessão liberada. O
+    // visualizador manda logo o que já tinha copiado (costuma copiar antes de
+    // conectar para colar lá); o anfitrião, só o que copiar dali em diante.
+    const compartilhar = compartilhaAreaTransferencia(estado);
+    if (compartilhar !== compartilhaAreaTransferencia(estadoSessao)) {
+      window.api.areaTransferencia.monitorar(compartilhar, estado.fase === 'em_sessao' && estado.papel === 'visualizador');
+    }
     estadoSessao = estado;
     renderizar();
   },
@@ -82,6 +92,15 @@ const controlador = new ControladorSessao({
   senhaDefinida: () => window.api.senha.estado().then((estado) => estado.definida),
   tentarSenha: (senha) => window.api.senha.tentar(senha),
   verificarServidor: () => sinalizacao.verificarConexao(),
+  aoReceberAreaTransferencia: (texto) => window.api.areaTransferencia.escrever(texto),
+});
+
+// Texto copiado neste computador durante a sessão: vai para o outro.
+window.api.areaTransferencia.aoCopiar((texto) => {
+  const resultado = texto === null ? 'grande_demais' : controlador.enviarAreaTransferencia(texto);
+  if (resultado === 'grande_demais') {
+    telaSessao.avisar('O texto copiado é grande demais para ir ao outro computador (limite de cerca de 250 KB).');
+  }
 });
 
 // Encerrar pelo botão do indicador flutuante.

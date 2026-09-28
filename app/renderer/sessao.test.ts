@@ -28,7 +28,13 @@ class ParFalso implements Par {
   /** O que foi pedido ao fechar: aviso pelo canal (e o motivo) ou nenhum aviso. */
   avisoAoFechar: { motivo?: string } | undefined;
   reiniciosIce = 0;
+  readonly areaEnviada: string[] = [];
   constructor(readonly opcoes: OpcoesPar) {}
+  enviarAreaTransferencia(texto: string) {
+    if (texto.length > 1000) return false; // "grande demais" no par falso
+    this.areaEnviada.push(texto);
+    return true;
+  }
   async iniciar() {
     this.iniciado = true;
     // Como o real: o anfitrião começa enviando a oferta.
@@ -111,6 +117,7 @@ async function criarApp(opcoesApp: OpcoesApp = {}) {
   const pares: ParFalso[] = [];
   const videos: Array<MediaStream | null> = [];
   const inputs: EventoInput[] = [];
+  const areaRecebida: string[] = [];
   let liberacoes = 0;
   let verificacoesServidor = 0;
   let id = '';
@@ -144,6 +151,7 @@ async function criarApp(opcoesApp: OpcoesApp = {}) {
     aoMudarVideo: (video) => videos.push(video),
     aoReceberInput: (evento) => inputs.push(evento),
     aoLiberarInput: () => liberacoes++,
+    aoReceberAreaTransferencia: (texto) => areaRecebida.push(texto),
     senhaDefinida: async () => opcoesApp.senhaDefinida ?? false,
     tentarSenha: async (senha) => {
       if (opcoesApp.bloqueado) return 'bloqueada';
@@ -169,6 +177,7 @@ async function criarApp(opcoesApp: OpcoesApp = {}) {
     pares,
     videos,
     inputs,
+    areaRecebida,
     liberacoes: () => liberacoes,
     verificacoesServidor: () => verificacoesServidor,
     id: () => id,
@@ -645,4 +654,50 @@ test('sem senha, a sessão comum já começa liberada e a tela é capturada logo
   const { anfitriao, visualizador } = await emSessao();
   assert.ok(liberada(anfitriao) && liberada(visualizador));
   await aguardar(() => anfitriao.pares[0]?.telaLiberada === true);
+});
+
+// ---------------------------------------------------------------------------
+// Área de transferência compartilhada (4.2)
+// ---------------------------------------------------------------------------
+
+test('área de transferência: os dois lados enviam e recebem com a sessão liberada', async () => {
+  const { visualizador, anfitriao, parV, parA } = await sessaoConectada();
+  assert.equal(visualizador.controlador.enviarAreaTransferencia('do visualizador'), 'enviado');
+  assert.equal(anfitriao.controlador.enviarAreaTransferencia('do anfitrião'), 'enviado');
+  assert.deepEqual(parV.areaEnviada, ['do visualizador']);
+  assert.deepEqual(parA.areaEnviada, ['do anfitrião']);
+
+  parA.opcoes.aoReceberAreaTransferencia?.('do visualizador');
+  parV.opcoes.aoReceberAreaTransferencia?.('do anfitrião');
+  assert.deepEqual(anfitriao.areaRecebida, ['do visualizador']);
+  assert.deepEqual(visualizador.areaRecebida, ['do anfitrião']);
+
+  assert.equal(visualizador.controlador.enviarAreaTransferencia('x'.repeat(1001)), 'grande_demais');
+});
+
+test('área de transferência: nada passa fora de sessão nem antes de a senha conferir', async () => {
+  const sozinho = await criarApp();
+  assert.equal(sozinho.controlador.enviarAreaTransferencia('fora de sessão'), 'ignorado');
+
+  const { visualizador, anfitriao, parV, parA } = await sessaoComSenha({ senhaDefinida: true, senhaCerta: SENHA });
+  // Travada (senha ainda não conferida): não envia nem aceita.
+  assert.equal(visualizador.controlador.enviarAreaTransferencia('cedo demais'), 'ignorado');
+  parA.opcoes.aoReceberAreaTransferencia?.('tentando plantar um texto');
+  assert.deepEqual(anfitriao.areaRecebida, []);
+  assert.deepEqual(parV.areaEnviada, []);
+
+  // Senha conferida: liberada nos dois lados.
+  parA.opcoes.aoReceberSenha?.(SENHA);
+  await aguardar(() => liberada(anfitriao));
+  parV.opcoes.aoAutenticado?.();
+  parA.opcoes.aoReceberAreaTransferencia?.('agora vale');
+  assert.deepEqual(anfitriao.areaRecebida, ['agora vale']);
+  assert.equal(visualizador.controlador.enviarAreaTransferencia('agora vai'), 'enviado');
+});
+
+test('área de transferência: texto que chega por uma conexão antiga é ignorado', async () => {
+  const { anfitriao, parA } = await sessaoConectada();
+  anfitriao.controlador.encerrar();
+  parA.opcoes.aoReceberAreaTransferencia?.('atrasado');
+  assert.deepEqual(anfitriao.areaRecebida, []);
 });

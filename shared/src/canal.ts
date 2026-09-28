@@ -9,8 +9,19 @@ import { SENHA_MAXIMA } from './senha.js';
 export const esquemaMotivoFimPeloCanal = esquemaMotivoFalha.exclude(['senha_incorreta', 'senha_bloqueada']);
 export type MotivoFimPeloCanal = z.infer<typeof esquemaMotivoFimPeloCanal>;
 
-/** Maior mensagem aceita pelo canal, checada antes do JSON.parse. */
-export const TAMANHO_MAXIMO_MENSAGEM_CANAL = 16 * 1024;
+/**
+ * Maior mensagem aceita pelo canal (em unidades de texto), checada antes do
+ * JSON.parse. É o tamanho máximo de mensagem que o Chromium negocia no
+ * WebRTC (256 KiB); cabe um texto grande da área de transferência.
+ */
+export const TAMANHO_MAXIMO_MENSAGEM_CANAL = 256 * 1024;
+
+/**
+ * Maior texto da área de transferência enviado de uma vez (em caracteres).
+ * O limite de fato é o tamanho da mensagem em bytes, conferido no envio:
+ * com acentos e símbolos, cabem menos caracteres.
+ */
+export const TEXTO_AREA_TRANSFERENCIA_MAXIMO = 200_000;
 
 // ---------------------------------------------------------------------------
 // Eventos de input (visualizador → anfitrião)
@@ -105,6 +116,12 @@ export const esquemaMensagemCanal = z.discriminatedUnion('tipo', [
    * conta os erros (o visualizador não pode se adiantar e "apagar" a contagem).
    */
   z.object({ tipo: z.literal('encerrar'), motivo: esquemaMotivoFimPeloCanal.optional() }),
+  /**
+   * Qualquer lado, com a sessão liberada: o texto que acabou de ser copiado
+   * neste computador, para o outro colar. Vai pelo mesmo canal do teclado,
+   * então chega antes de um Ctrl+V enviado logo depois.
+   */
+  z.object({ tipo: z.literal('area_transferencia'), texto: z.string().min(1).max(TEXTO_AREA_TRANSFERENCIA_MAXIMO) }),
   ...esquemasInput,
 ]);
 export type MensagemCanal = z.infer<typeof esquemaMensagemCanal>;

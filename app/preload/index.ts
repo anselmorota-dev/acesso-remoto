@@ -4,6 +4,9 @@
 // qualquer dado que o renderer mande junto.
 import { contextBridge, ipcRenderer } from 'electron';
 import {
+  CANAL_AREA_COPIADO,
+  CANAL_AREA_ESCREVER,
+  CANAL_AREA_MONITORAR,
   CANAL_BANDEJA_ESTADO,
   CANAL_CHAMAR_ATENCAO,
   CANAL_INICIO_AUTOMATICO_DEFINIR,
@@ -41,6 +44,14 @@ const api: ApiDoPreload = {
       ipcRenderer.on(CANAL_PEDIDO_ENCERRAR, () => tratar());
     },
     manterAcordado: (ligar) => ipcRenderer.send(CANAL_MANTER_ACORDADO, ligar),
+  },
+  areaTransferencia: {
+    monitorar: (ligar, enviarAtual) => ipcRenderer.send(CANAL_AREA_MONITORAR, ligar, enviarAtual),
+    // Só o texto chega ao renderer, nunca o evento do IPC.
+    aoCopiar: (tratar) => {
+      ipcRenderer.on(CANAL_AREA_COPIADO, (_evento, texto: unknown) => tratar(typeof texto === 'string' ? texto : null));
+    },
+    escrever: (texto) => ipcRenderer.send(CANAL_AREA_ESCREVER, texto),
   },
   bandeja: {
     atualizar: (estado) => ipcRenderer.send(CANAL_BANDEJA_ESTADO, estado),

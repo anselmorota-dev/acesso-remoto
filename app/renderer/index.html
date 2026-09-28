@@ -14,7 +14,11 @@
   <body>
     <!-- Painel de sessão: pedido em andamento, sessão ativa ou aviso do último resultado. -->
     <section id="painel-sessao" class="painel" aria-live="polite" hidden>
-      <p id="texto-sessao" class="painel-texto"></p>
+      <div class="painel-texto">
+        <p id="texto-sessao"></p>
+        <!-- Aviso passageiro durante a sessão (ex.: texto copiado grande demais). -->
+        <p id="nota-sessao" class="nota" hidden></p>
+      </div>
       <button id="botao-sessao" type="button" class="secundario"></button>
     </section>
 

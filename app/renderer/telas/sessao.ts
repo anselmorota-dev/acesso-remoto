@@ -5,7 +5,12 @@ import { elemento } from './util';
 
 export interface TelaSessao {
   atualizar(estado: EstadoSessao): void;
+  /** Mostra um aviso passageiro no painel da sessão (some sozinho). */
+  avisar(texto: string): void;
 }
+
+/** Quanto tempo um aviso passageiro fica no painel. */
+const DURACAO_AVISO_MS = 8000;
 
 export interface OpcoesTelaSessao {
   /** Botão do painel: cancela o pedido ou encerra a sessão. */
@@ -29,6 +34,8 @@ export function formatarDuracao(ms: number): string {
 export function montarTelaSessao(opcoes: OpcoesTelaSessao): TelaSessao {
   const painel = elemento<HTMLElement>('#painel-sessao');
   const texto = elemento<HTMLParagraphElement>('#texto-sessao');
+  const nota = elemento<HTMLParagraphElement>('#nota-sessao');
+  let timerNota: ReturnType<typeof setTimeout> | undefined;
   const botao = elemento<HTMLButtonElement>('#botao-sessao');
   const dialogo = elemento<HTMLDialogElement>('#dialogo-pedido');
   const origem = elemento<HTMLElement>('#origem-pedido');
@@ -79,9 +86,17 @@ export function montarTelaSessao(opcoes: OpcoesTelaSessao): TelaSessao {
   });
 
   return {
+    avisar(mensagem) {
+      nota.textContent = mensagem;
+      nota.hidden = false;
+      clearTimeout(timerNota);
+      timerNota = setTimeout(() => (nota.hidden = true), DURACAO_AVISO_MS);
+    },
     atualizar(novoEstado) {
       estado = novoEstado;
       painel.dataset['fase'] = estado.fase;
+      // Aviso passageiro é da sessão: some quando ela acaba.
+      if (estado.fase !== 'em_sessao') nota.hidden = true;
 
       switch (estado.fase) {
         case 'livre':

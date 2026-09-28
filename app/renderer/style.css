@@ -188,6 +188,10 @@ button:disabled {
   margin: 0;
 }
 
+.painel-texto p {
+  margin: 0;
+}
+
 /* Caixa de aceite -------------------------------------------------------- */
 
 .dialogo {

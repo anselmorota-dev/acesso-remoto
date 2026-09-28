@@ -15,6 +15,12 @@ export const CANAL_INDICAR_SESSAO = 'sessao:indicar';
 export const CANAL_PEDIDO_ENCERRAR = 'sessao:pedido-encerrar';
 /** Canal IPC renderer → main: em sessão, não deixar o computador suspender (true/false). */
 export const CANAL_MANTER_ACORDADO = 'sessao:manter-acordado';
+/** Área de transferência compartilhada: liga/desliga o monitor (renderer → main). */
+export const CANAL_AREA_MONITORAR = 'area:monitorar';
+/** main → renderer: texto novo copiado neste computador (null: grande demais). */
+export const CANAL_AREA_COPIADO = 'area:copiado';
+/** renderer → main: escreve o texto que veio do outro computador. */
+export const CANAL_AREA_ESCREVER = 'area:escrever';
 /** Canais IPC renderer ⇄ main (com resposta) da senha de acesso não supervisionado. */
 export const CANAL_SENHA_ESTADO = 'senha:estado';
 export const CANAL_SENHA_DEFINIR = 'senha:definir';
@@ -63,6 +69,15 @@ export interface ApiDoPreload {
     aoPedirEncerramento(tratar: () => void): void;
     /** Em sessão (qualquer papel): mantém a tela acesa e o sistema sem suspender. */
     manterAcordado(ligar: boolean): void;
+  };
+  /** Área de transferência compartilhada (texto), só durante a sessão liberada. */
+  readonly areaTransferencia: {
+    /** Liga/desliga; "enviarAtual": o que já está copiado conta como novo. */
+    monitorar(ligar: boolean, enviarAtual: boolean): void;
+    /** Registra quem recebe cada texto copiado neste computador (null: grande demais). */
+    aoCopiar(tratar: (texto: string | null) => void): void;
+    /** Escreve o texto que veio do outro computador. */
+    escrever(texto: string): void;
   };
   /** Ícone da bandeja: a janela principal informa o ID e quem está controlando. */
   readonly bandeja: {

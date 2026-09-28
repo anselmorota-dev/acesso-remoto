@@ -89,6 +89,8 @@ export interface OpcoesControlador {
   aoReceberInput?: (evento: EventoInput) => void;
   /** Anfitrião: a sessão acabou; soltar botões/teclas que ficaram apertados. */
   aoLiberarInput?: () => void;
+  /** O outro computador copiou um texto: escrever na área de transferência daqui. */
+  aoReceberAreaTransferencia?: (texto: string) => void;
   /** Anfitrião: há senha de acesso não supervisionado definida? */
   senhaDefinida?: () => Promise<boolean>;
   /** Anfitrião: confere a senha recebida (com limite de tentativas). */
@@ -208,6 +210,17 @@ export class ControladorSessao {
     if (estado.fase === 'em_sessao' && estado.papel === 'visualizador' && estado.liberada && estado.reconectandoAte === null) {
       this.par?.enviarInput(evento);
     }
+  }
+
+  /**
+   * Texto copiado neste computador: vai para o outro (qualquer papel), só com
+   * a sessão liberada. Com a conexão direta caída, fica na fila da conexão e
+   * chega quando ela voltar (só o conteúdo, não executa nada lá).
+   */
+  enviarAreaTransferencia(texto: string): 'enviado' | 'grande_demais' | 'ignorado' {
+    const estado = this.estadoAtual;
+    if (estado.fase !== 'em_sessao' || !estado.liberada || !this.par) return 'ignorado';
+    return this.par.enviarAreaTransferencia(texto) ? 'enviado' : 'grande_demais';
   }
 
   /** Cancela o pedido ou encerra a sessão (qualquer um dos lados). */
@@ -397,6 +410,14 @@ export class ControladorSessao {
         const estado = this.estadoAtual;
         if (this.par === par && papel === 'anfitriao' && estado.fase === 'em_sessao' && estado.liberada) {
           this.opcoes.aoReceberInput?.(evento);
+        }
+      },
+      // Área de transferência: só da conexão atual e com a sessão liberada
+      // (na sessão por senha, nada entra antes de a senha conferir).
+      aoReceberAreaTransferencia: (texto) => {
+        const estado = this.estadoAtual;
+        if (this.par === par && estado.fase === 'em_sessao' && estado.liberada) {
+          this.opcoes.aoReceberAreaTransferencia?.(texto);
         }
       },
       aoReceberSenha: (senhaRecebida) => {

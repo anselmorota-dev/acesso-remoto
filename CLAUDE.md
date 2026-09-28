@@ -17,6 +17,7 @@ Não tenho pressa: prefiro entender cada parte a avançar rápido.
 - **Vídeo e dados:** WebRTC (RTCPeerConnection + DataChannel)
 - **Controle de mouse/teclado:** `@jitsi/robotjs` (escolhido na 2.2: ativo e com binários N-API
   prontos, que funcionam no Electron sem compilar; o `@nut-tree-fork/nut-js` estava parado desde 03/2025)
+- **Chamadas nativas do sistema:** `koffi` (4.2: contador da área de transferência do Windows)
 - **Servidor de sinalização:** Node.js + TypeScript + `ws` (WebSocket), deploy no Render
 - **Redes difíceis (fase 5):** servidor TURN (coturn ou serviço gerenciado)
 - **Monorepo:** npm workspaces (`shared`, `server`, `app`); TypeScript 7 só para checar tipos
@@ -103,7 +104,7 @@ Não tenho pressa: prefiro entender cada parte a avançar rápido.
 
 ### Fase 4 — Recursos de produtividade
 - [x] 4.1 Sessões longas: sem limite de tempo, sobrevivem a quedas do servidor e da rede
-- [ ] 4.2 Área de transferência compartilhada
+- [x] 4.2 Área de transferência compartilhada
 - [ ] 4.3 Transferência de arquivos pelo DataChannel (com progresso)
 - [ ] 4.4 Chat simples durante a sessão
 
@@ -121,10 +122,31 @@ Não tenho pressa: prefiro entender cada parte a avançar rápido.
 ## Estado atual
 Fase 1 concluída. Fase 2: 2.1 a 2.4 concluídas; 2.5 publicada e testada na mesma máquina,
 falta o teste entre duas redes (o usuário fará depois, com outro notebook). Fase 3 concluída
-(28/09/2026). Fase 4: 4.1 (sessões longas, protocolo v6) concluída. Próxima: 4.2 (área de
-transferência compartilhada). Pendente do usuário: teste real entre duas redes (2.5).
+(28/09/2026). Fase 4: 4.1 (sessões longas) e 4.2 (área de transferência, protocolo v7)
+concluídas. Próxima: 4.3 (transferência de arquivos). Pendente do usuário: teste real entre
+duas redes (2.5).
 
 Decisões já tomadas:
+- Área de transferência (4.2, protocolo v7): só texto (imagens podem vir com a 4.3),
+  automática nos dois sentidos (escolhas do usuário). Só com a sessão liberada (aceite ou
+  senha conferida), nos dois papéis. No início da sessão só o visualizador manda o que já
+  estava copiado (o anfitrião, só o que copiar depois; senão um apagaria a cópia do outro).
+  Mensagem `area_transferencia {texto}` no MESMO canal do teclado (chega antes do Ctrl+V
+  seguinte); limite: a mensagem inteira ≤ 256 KiB em bytes (e ≤ `maxMessageSize` negociado;
+  `serializarAreaTransferencia`), texto ≤ 200 mil caracteres; maior que isso não vai e o
+  painel avisa (`telaSessao.avisar`). `TAMANHO_MAXIMO_MENSAGEM_CANAL` passou a 256 KiB.
+  Canal ainda fechado: guarda o último texto e manda ao abrir. Main: `monitor-area.ts`
+  (puro, testado) confere a cada 0,5 s; o clipboard do Electron 44 é ASSÍNCRONO
+  (`readText`/`writeText` devolvem Promise), então leituras e escritas passam por uma fila
+  (sem ela, uma conferência lia o texto recém-recebido e o devolvia: eco). Texto recebido é
+  anotado como "já visto" (como o sistema o devolve). IPC `area:monitorar|copiado|escrever`
+  (só a janela principal; desliga se ela fechar/travar/recarregar).
+- Disputa pela área de transferência (Windows só deixa um programa abri-la por vez): ler a
+  cada 0,5 s fazia outros programas falharem ao copiar (~2% sem novas tentativas, medido;
+  0% sem o app). Correção (escolha do usuário): `GetClipboardSequenceNumber` (user32) via
+  **koffi** (FFI, mantida, binários prontos; funciona sem o script de instalação) em
+  `main/contador-area.ts`: o texto só é lido quando o contador muda. Sem contador (outros
+  sistemas ou falha ao carregar), lê direto. Leitura que falha zera o contador anotado.
 - Sessões longas (4.1, protocolo v6; objetivo do projeto: sessões de um dia inteiro). Não há
   limite de duração. Depois que a conexão direta funciona, a sessão não depende do servidor:
   - Servidor cai/reinicia (o Render gratuito "pode reiniciar a qualquer momento", e cada push
@@ -300,7 +322,14 @@ Decisões já tomadas:
 Notas para as próximas etapas:
 - robotjs: o npm desta máquina bloqueia scripts de instalação (`install: node-gyp-build`); não
   faz falta porque o binário win32-x64 vem pronto. Na 5.4 (instalador) o `.node` precisa ficar
-  fora do asar (`asarUnpack`).
+  fora do asar (`asarUnpack`). O mesmo vale para a koffi (4.2).
+- Teste E2E da área de transferência: na mesma máquina os dois apps veem a MESMA área do
+  Windows (o teste confere o caminho, limites e ausência de eco; o "copiar num e colar no
+  outro" de verdade fica para o teste entre dois computadores). O script altera a área do
+  usuário: guardar antes e devolver no fim (com novas tentativas: pode estar ocupada).
+  PowerShell: arquivos .ps1 são bloqueados pela política desta máquina (usar comando inline
+  ou -EncodedCommand); `GetOpenClipboardWindow` e `OpenClipboard` em laço NÃO servem para
+  medir disputa (leituras duram microssegundos); medir por falhas de cópia de outro programa.
 - robotjs guarda o tamanho da área de trabalho virtual na 1ª chamada e não atualiza: se os
   monitores mudarem com o app aberto, as coordenadas ficam erradas. Tratar na 5.1.
 - Mouse ainda não testado com escala do Windows ≠ 100% nem no macOS (esta máquina: 1366x768, 100%).
