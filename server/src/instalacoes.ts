@@ -9,8 +9,14 @@ import type { IdCliente } from '@acesso-remoto/shared';
 import { gerarId } from './ids.js';
 
 export interface RepositorioInstalacoes {
-  /** ID da instalação com esta chave; cria um ID novo se a chave for nova. */
-  idDaChave(chavePublica: string): Promise<IdCliente>;
+  /** ID da instalação com esta chave, ou null se a chave é nova. */
+  buscarId(chavePublica: string): Promise<IdCliente | null>;
+  /**
+   * Cria um ID para a chave. Se ela foi cadastrada agora mesmo por outra
+   * conexão (corrida), devolve o ID que já existe.
+   * (Separado de buscarId para o servidor poder limitar instalações novas.)
+   */
+  criarId(chavePublica: string): Promise<IdCliente>;
   /** Libera recursos (conexões com o banco). */
   fechar(): Promise<void>;
 }
@@ -25,7 +31,11 @@ export class InstalacoesEmMemoria implements RepositorioInstalacoes {
     this.sortear = sortear;
   }
 
-  async idDaChave(chavePublica: string): Promise<IdCliente> {
+  async buscarId(chavePublica: string): Promise<IdCliente | null> {
+    return this.porChave.get(chavePublica) ?? null;
+  }
+
+  async criarId(chavePublica: string): Promise<IdCliente> {
     const existente = this.porChave.get(chavePublica);
     if (existente) return existente;
     const id = gerarId((candidato) => this.ids.has(candidato), this.sortear);

@@ -53,15 +53,16 @@ export class InstalacoesPostgres implements RepositorioInstalacoes {
     return new InstalacoesPostgres(pool);
   }
 
-  async idDaChave(chavePublica: string): Promise<IdCliente> {
+  async buscarId(chavePublica: string): Promise<IdCliente | null> {
     // Instalação conhecida: devolve o ID e anota quando foi vista.
     const conhecida = await this.pool.query<{ id: string }>(
       'UPDATE instalacoes SET vista_em = now() WHERE chave_publica = $1 RETURNING id',
       [chavePublica],
     );
-    const id = conhecida.rows[0]?.id;
-    if (id) return id;
+    return conhecida.rows[0]?.id ?? null;
+  }
 
+  async criarId(chavePublica: string): Promise<IdCliente> {
     for (let tentativa = 0; tentativa < MAX_TENTATIVAS; tentativa++) {
       const candidato = String(randomInt(100_000_000, 1_000_000_000));
       const nova = await this.pool.query<{ id: string }>(

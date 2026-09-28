@@ -38,6 +38,9 @@ test('registrar devolve um ID de 9 dígitos', async () => {
 });
 
 test('cada cliente recebe um ID diferente', async () => {
+  // 20 instalações novas do mesmo IP: acima do limite padrão (testado à parte).
+  await servidor.fechar();
+  await subir({ limites: { instalacoesNovasPorHora: 100 } });
   const clientes = await Promise.all(Array.from({ length: 20 }, conectarRegistrado));
   const ids = new Set(clientes.map((c) => c.id));
   assert.equal(ids.size, 20);
@@ -218,7 +221,8 @@ test('banco fora do ar: o app recebe "indisponivel" e pode tentar de novo', asyn
   await servidor.fechar();
   await subir({
     instalacoes: {
-      idDaChave: () => Promise.reject(new Error('banco fora do ar')),
+      buscarId: () => Promise.reject(new Error('banco fora do ar')),
+      criarId: () => Promise.reject(new Error('banco fora do ar')),
       fechar: async () => {},
     },
   });
@@ -237,4 +241,58 @@ test('rota /saude responde ok', async () => {
   const resposta = await fetch(`http://127.0.0.1:${servidor.porta}/saude`);
   assert.equal(resposta.status, 200);
   assert.equal(await resposta.text(), 'ok');
+});
+
+// ---------------------------------------------------------------------------
+// Limites de tentativas (3.5)
+// ---------------------------------------------------------------------------
+
+test('muitos pedidos de conexão seguidos: "limite_excedido"', async () => {
+  await servidor.fechar();
+  await subir({ limites: { pedidosPorMinuto: 3 } });
+  const cliente = await conectarRegistrado();
+  const respostas: string[] = [];
+  for (let i = 0; i < 4; i++) {
+    cliente.enviar({ tipo: 'conectar', destino: '123456789', comSenha: false }); // ID offline
+    const resposta = await cliente.proxima();
+    respostas.push(resposta.tipo === 'erro' ? resposta.codigo : resposta.tipo);
+  }
+  assert.deepEqual(respostas, ['pedido_recusado', 'pedido_recusado', 'pedido_recusado', 'limite_excedido']);
+});
+
+/** Tenta registrar uma instalação nova e devolve a resposta ao "provar". */
+async function tentarInstalacaoNova(ip: string) {
+  const cliente = await conectarCliente(servidor.porta, { ip });
+  const identidade = novaIdentidade();
+  cliente.enviar({ tipo: 'registrar', versao: PROTOCOL_VERSION, chavePublica: identidade.chavePublica });
+  const desafio = await cliente.proxima();
+  assert.ok(desafio.tipo === 'desafio');
+  cliente.enviar({ tipo: 'provar', assinatura: identidade.assinar(desafio.desafio) });
+  return { resposta: await cliente.proxima(), cliente };
+}
+
+test('instalações novas por IP são limitadas; instalações já conhecidas continuam entrando', async () => {
+  await servidor.fechar();
+  await subir({ limites: { instalacoesNovasPorHora: 2 }, proxiesConfiaveis: 1 });
+  const conhecida = novaIdentidade();
+  await registrarCliente(servidor.porta, conhecida, '200.1.1.1');
+  await registrarCliente(servidor.porta, novaIdentidade(), '200.1.1.1');
+
+  // Terceira instalação nova do mesmo IP: recusada.
+  const { resposta, cliente } = await tentarInstalacaoNova('200.1.1.1');
+  assert.equal(resposta.tipo === 'erro' && resposta.codigo, 'limite_excedido');
+  assert.equal(await cliente.fechado, 1008);
+
+  // A instalação que já existia entra normalmente; outro IP também cria.
+  await registrarCliente(servidor.porta, conhecida, '200.1.1.1');
+  await registrarCliente(servidor.porta, novaIdentidade(), '200.9.9.9');
+});
+
+test('IP forjado no começo do X-Forwarded-For não escapa do limite', async () => {
+  await servidor.fechar();
+  await subir({ limites: { instalacoesNovasPorHora: 1 }, proxiesConfiaveis: 1 });
+  // O cliente põe um IP inventado no começo; o proxy acrescenta o real no fim.
+  await registrarCliente(servidor.porta, novaIdentidade(), '1.1.1.1, 200.1.1.1');
+  const { resposta } = await tentarInstalacaoNova('2.2.2.2, 200.1.1.1');
+  assert.equal(resposta.tipo === 'erro' && resposta.codigo, 'limite_excedido');
 });

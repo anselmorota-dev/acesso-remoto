@@ -45,16 +45,17 @@ after(async () => {
   await repositorio.fechar();
 });
 
-test('mesma chave, mesmo ID; chaves diferentes, IDs diferentes', opcoes, async () => {
+test('chave nova não tem ID; criado, a busca passa a achar o mesmo', opcoes, async () => {
   const a = novaChave();
-  const idA = await repositorio.idDaChave(a);
+  assert.equal(await repositorio.buscarId(a), null);
+  const idA = await repositorio.criarId(a);
   assert.match(idA, /^[1-9]\d{8}$/);
-  assert.equal(await repositorio.idDaChave(a), idA);
-  assert.notEqual(await repositorio.idDaChave(novaChave()), idA);
+  assert.equal(await repositorio.buscarId(a), idA);
+  assert.notEqual(await repositorio.criarId(novaChave()), idA);
 });
 
-test('duas conexões da mesma chave ao mesmo tempo recebem o mesmo ID', opcoes, async () => {
+test('duas conexões criando a mesma chave ao mesmo tempo recebem o mesmo ID', opcoes, async () => {
   const chave = novaChave();
-  const [um, dois] = await Promise.all([repositorio.idDaChave(chave), repositorio.idDaChave(chave)]);
+  const [um, dois] = await Promise.all([repositorio.criarId(chave), repositorio.criarId(chave)]);
   assert.equal(um, dois);
 });

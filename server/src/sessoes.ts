@@ -13,6 +13,7 @@ import type {
   Sinal,
 } from '@acesso-remoto/shared';
 import type { Conexao, ConexaoRegistrada } from './conexao.js';
+import type { LimitesServidor } from './limites.js';
 
 export interface OpcoesSessoes {
   registrados: ReadonlyMap<IdCliente, Conexao>;
@@ -20,11 +21,13 @@ export interface OpcoesSessoes {
   enviarErro: (conexao: Conexao, codigo: CodigoErro, mensagem: string) => void;
   /** Quanto tempo o anfitrião tem para aceitar ou recusar. */
   prazoRespostaMs: number;
+  /** Bloqueio de quem erra a senha demais (o servidor sabe pelo motivo do encerramento). */
+  limites: Pick<LimitesServidor, 'podeTentarSenha' | 'falhaSenha'>;
   log: (mensagem: string) => void;
 }
 
 export function criarGerenciadorSessoes(opcoes: OpcoesSessoes) {
-  const { registrados, enviar, enviarErro, prazoRespostaMs, log } = opcoes;
+  const { registrados, enviar, enviarErro, prazoRespostaMs, limites, log } = opcoes;
 
   function liberar(...conexoes: Conexao[]): void {
     for (const conexao of conexoes) {
@@ -40,6 +43,13 @@ export function criarGerenciadorSessoes(opcoes: OpcoesSessoes) {
     }
     if (destino === visualizador.id) {
       enviarErro(visualizador, 'destino_invalido', 'Não é possível acessar o próprio computador');
+      return;
+    }
+    // Quem errou a senha demais nem chega ao anfitrião: sem pedido, sem
+    // conexão direta, sem descobrir o IP dele.
+    if (comSenha && !limites.podeTentarSenha(visualizador.ip, destino)) {
+      enviar(visualizador, { tipo: 'pedido_recusado', destino, motivo: 'bloqueado' });
+      log(`[server] acesso com senha a ${destino} bloqueado (tentativas demais)`);
       return;
     }
 
@@ -89,8 +99,8 @@ export function criarGerenciadorSessoes(opcoes: OpcoesSessoes) {
       return;
     }
 
-    visualizador.vinculo = { tipo: 'em_sessao', parceiro: anfitriao, papel: 'visualizador' };
-    anfitriao.vinculo = { tipo: 'em_sessao', parceiro: visualizador, papel: 'anfitriao' };
+    visualizador.vinculo = { tipo: 'em_sessao', parceiro: anfitriao, papel: 'visualizador', porSenha: sessaoPorSenha };
+    anfitriao.vinculo = { tipo: 'em_sessao', parceiro: visualizador, papel: 'anfitriao', porSenha: sessaoPorSenha };
     enviar(visualizador, { tipo: 'sessao_iniciada', parceiro: anfitriao.id, papel: 'visualizador', porSenha: sessaoPorSenha });
     enviar(anfitriao, { tipo: 'sessao_iniciada', parceiro: origem, papel: 'anfitriao', porSenha: sessaoPorSenha });
     log(`[server] sessão iniciada ${origem} → ${anfitriao.id}${sessaoPorSenha ? ' (por senha)' : ''}`);
@@ -129,6 +139,13 @@ export function criarGerenciadorSessoes(opcoes: OpcoesSessoes) {
         return;
       }
       case 'em_sessao': {
+        // O anfitrião recusou a senha: conta um erro para o IP de quem tentou.
+        // Só vale em sessão por senha (senão um anfitrião com defeito poderia
+        // "acusar" quem ele aceitou manualmente).
+        const senhaRecusada = motivo === 'senha_incorreta' || motivo === 'senha_bloqueada';
+        if (senhaRecusada && vinculo.papel === 'anfitriao' && vinculo.porSenha && conexao.id) {
+          limites.falhaSenha(vinculo.parceiro.ip, conexao.id);
+        }
         liberar(conexao, vinculo.parceiro);
         enviar(vinculo.parceiro, { tipo: 'sessao_encerrada', motivo });
         log(`[server] sessão encerrada ${conexao.id} ↔ ${vinculo.parceiro.id} (${motivo})`);

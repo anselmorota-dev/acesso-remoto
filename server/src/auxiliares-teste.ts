@@ -29,8 +29,13 @@ export function encerrarClientes(): void {
 export type ClienteTeste = Awaited<ReturnType<typeof conectarCliente>>;
 
 /** Cliente WebSocket de teste que enfileira as mensagens recebidas. */
-export async function conectarCliente(porta: number, opcoes: { autoPong?: boolean } = {}) {
-  const socket = new WebSocket(`ws://127.0.0.1:${porta}`, opcoes);
+export async function conectarCliente(porta: number, opcoes: { autoPong?: boolean; ip?: string } = {}) {
+  // "ip" simula o cabeçalho que o proxy do Render acrescenta (servidor com proxiesConfiaveis = 1).
+  const { ip, ...resto } = opcoes;
+  const socket = new WebSocket(`ws://127.0.0.1:${porta}`, {
+    ...resto,
+    ...(ip ? { headers: { 'x-forwarded-for': ip } } : {}),
+  });
   abertos.push(socket);
   const fila: MensagemDoServidor[] = [];
   const esperando: Array<(m: MensagemDoServidor) => void> = [];
@@ -88,8 +93,8 @@ export async function completarRegistro(cliente: ClienteTeste, identidade: Ident
 }
 
 /** Conecta e registra; devolve o cliente com seu ID e sua identidade. */
-export async function registrarCliente(porta: number, identidade: IdentidadeTeste = novaIdentidade()) {
-  const cliente = await conectarCliente(porta);
+export async function registrarCliente(porta: number, identidade: IdentidadeTeste = novaIdentidade(), ip?: string) {
+  const cliente = await conectarCliente(porta, { ip });
   const id = await completarRegistro(cliente, identidade);
   return { ...cliente, id, identidade };
 }

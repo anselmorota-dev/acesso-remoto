@@ -19,7 +19,10 @@ if (urlBanco) {
   console.log('[server] DATABASE_URL não definida: IDs fixos só em memória (somem ao reiniciar)');
 }
 
-const servidor = await iniciarServidor({ porta, instalacoes });
+// Quantos proxies confiáveis acrescentam o IP do cliente ao X-Forwarded-For.
+const proxiesConfiaveis = Number(process.env.PROXIES_CONFIAVEIS ?? 0);
+
+const servidor = await iniciarServidor({ porta, instalacoes, proxiesConfiaveis });
 console.log(`[server] escutando na porta ${servidor.porta} (protocolo v${PROTOCOL_VERSION})`);
 
 // Encerramento limpo ao receber Ctrl+C ou o sinal de parada do Render.

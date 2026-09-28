@@ -89,6 +89,7 @@ const TEXTO_RECUSA: Record<MotivoRecusa, string> = {
   offline: 'Nenhum computador online com esse ID.',
   ocupado: 'O outro computador já está em uma sessão.',
   sem_resposta: 'O outro computador não respondeu a tempo.',
+  bloqueado: 'Acesso com senha a este computador pausado por excesso de senhas erradas. Tente mais tarde (ou peça o aceite, sem senha).',
 };
 
 const TEXTO_ENCERRAMENTO: Record<MotivoEncerramento, string> = {

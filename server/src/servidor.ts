@@ -16,6 +16,7 @@ import {
 } from '@acesso-remoto/shared';
 import type { Conexao, ConexaoRegistrada } from './conexao.js';
 import { InstalacoesEmMemoria, type RepositorioInstalacoes } from './instalacoes.js';
+import { chaveDoIp, criarLimites, ipDoCliente, type ConfigLimites } from './limites.js';
 import { criarGerenciadorSessoes } from './sessoes.js';
 
 export interface OpcoesServidor {
@@ -33,6 +34,13 @@ export interface OpcoesServidor {
   log?: (mensagem: string) => void;
   /** Onde ficam os IDs fixos das instalações (padrão: em memória). */
   instalacoes?: RepositorioInstalacoes;
+  /** Limites de tentativas (padrão: LIMITES_PADRAO; os testes usam números pequenos). */
+  limites?: Partial<ConfigLimites>;
+  /**
+   * Quantos proxies confiáveis acrescentam ao X-Forwarded-For antes de chegar
+   * aqui (Render: medido no deploy). 0 = usa o endereço da conexão.
+   */
+  proxiesConfiaveis?: number;
 }
 
 export interface ServidorSinalizacao {
@@ -66,16 +74,31 @@ export async function iniciarServidor(opcoes: OpcoesServidor): Promise<ServidorS
     tamanhoMaximoMensagem = 64 * 1024,
     log = console.log,
     instalacoes = new InstalacoesEmMemoria(),
+    proxiesConfiaveis = 0,
   } = opcoes;
 
   const conexoes = new Set<Conexao>();
   const registrados = new Map<IdCliente, Conexao>();
+  const limites = criarLimites(opcoes.limites);
+  // Esquece contagens antigas de tempos em tempos (a memória não cresce para sempre).
+  const faxina = setInterval(() => limites.limpar(), 60_000);
+  faxina.unref();
 
   // Servidor HTTP: o WebSocket começa como uma requisição HTTP ("upgrade").
   // A rota /saude permite ao Render verificar se o serviço está no ar.
   const http: Server = createServer((req, res) => {
     if (req.method === 'GET' && req.url === '/saude') {
       res.writeHead(200, { 'Content-Type': 'text/plain' }).end('ok');
+    } else if (req.method === 'GET' && req.url === '/diagnostico-ip') {
+      // TEMPORÁRIO (3.5): mostra a quem chama os próprios cabeçalhos de IP,
+      // para medir quantos proxies o Render põe no caminho. Será removido.
+      const cabecalhos = ['x-forwarded-for', 'cf-connecting-ip', 'true-client-ip', 'x-real-ip'];
+      res.writeHead(200, { 'Content-Type': 'application/json' }).end(
+        JSON.stringify({
+          ...Object.fromEntries(cabecalhos.map((c) => [c, req.headers[c] ?? null])),
+          remoto: req.socket.remoteAddress,
+        }),
+      );
     } else {
       res.writeHead(404).end();
     }
@@ -99,6 +122,7 @@ export async function iniciarServidor(opcoes: OpcoesServidor): Promise<ServidorS
     enviar,
     enviarErro,
     prazoRespostaMs: prazoRespostaPedidoMs,
+    limites,
     log,
   });
 
@@ -151,9 +175,19 @@ export async function iniciarServidor(opcoes: OpcoesServidor): Promise<ServidorS
     }
     registro.provando = true;
 
-    let id: IdCliente;
+    let id: IdCliente | null;
     try {
-      id = await instalacoes.idDaChave(registro.chavePublica);
+      id = await instalacoes.buscarId(registro.chavePublica);
+      if (!id) {
+        // Instalação nova vira uma linha no banco: limitada por IP, para
+        // ninguém encher o banco gerando chaves à vontade.
+        if (!limites.instalacaoNova(conexao.ip)) {
+          enviarErro(conexao, 'limite_excedido', 'Muitas instalações novas deste endereço; tente mais tarde');
+          conexao.socket.close(FECHAMENTO_VIOLACAO_POLITICA, 'limite_excedido');
+          return;
+        }
+        id = await instalacoes.criarId(registro.chavePublica);
+      }
     } catch (erro) {
       log(`[server] falha ao buscar o ID da instalação: ${(erro as Error).message}`);
       enviarErro(conexao, 'indisponivel', 'Servidor temporariamente indisponível; tente de novo');
@@ -212,6 +246,11 @@ export async function iniciarServidor(opcoes: OpcoesServidor): Promise<ServidorS
 
     switch (mensagem.tipo) {
       case 'conectar':
+        // Limite de taxa por IP e por ID: barra quem fica varrendo IDs.
+        if (!limites.pedido(registrada.ip, registrada.id)) {
+          enviarErro(registrada, 'limite_excedido', 'Muitos pedidos de conexão seguidos; aguarde um minuto');
+          return;
+        }
         sessoes.conectar(registrada, mensagem.destino, mensagem.comSenha);
         return;
       case 'responder_pedido':
@@ -226,8 +265,15 @@ export async function iniciarServidor(opcoes: OpcoesServidor): Promise<ServidorS
     }
   }
 
-  wss.on('connection', (socket) => {
-    const conexao: Conexao = { socket, id: null, registro: null, viva: true, vinculo: { tipo: 'livre' } };
+  wss.on('connection', (socket, pedido) => {
+    const conexao: Conexao = {
+      socket,
+      ip: chaveDoIp(ipDoCliente(pedido, proxiesConfiaveis)),
+      id: null,
+      registro: null,
+      viva: true,
+      vinculo: { tipo: 'livre' },
+    };
     conexoes.add(conexao);
 
     // Quem conecta e não se registra a tempo é desconectado, para não
@@ -287,6 +333,7 @@ export async function iniciarServidor(opcoes: OpcoesServidor): Promise<ServidorS
     fechar: () =>
       (fechamento ??= new Promise<void>((resolve, reject) => {
         clearInterval(heartbeat);
+        clearInterval(faxina);
         for (const conexao of conexoes) conexao.socket.terminate();
         wss.close();
         http.close((erro) => (erro ? reject(erro) : resolve()));

@@ -152,6 +152,8 @@ export const esquemaCodigoErro = z.enum([
   'indisponivel',
   /** A mesma instalação conectou de novo em outro lugar; esta conexão foi substituída. */
   'substituida',
+  /** Muitas tentativas seguidas (pedidos, instalações novas): aguarde um pouco. */
+  'limite_excedido',
 ]);
 export type CodigoErro = z.infer<typeof esquemaCodigoErro>;
 
@@ -164,6 +166,8 @@ export const esquemaMotivoRecusa = z.enum([
   'ocupado',
   /** O anfitrião não respondeu a tempo. */
   'sem_resposta',
+  /** Acesso com senha pausado para este destino: senhas erradas demais (limite no servidor). */
+  'bloqueado',
 ]);
 export type MotivoRecusa = z.infer<typeof esquemaMotivoRecusa>;
 

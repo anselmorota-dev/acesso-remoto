@@ -294,3 +294,92 @@ test('aceitar "por senha" um pedido sem senha é recusado e o pedido continua pe
   const inicio = await visualizador.proxima();
   assert.ok(inicio.tipo === 'sessao_iniciada' && inicio.porSenha === false);
 });
+
+// ---------------------------------------------------------------------------
+// Limite de senhas erradas no servidor (3.5)
+// ---------------------------------------------------------------------------
+
+/** Uma tentativa de acesso com senha que o anfitrião recusa (senha errada). */
+async function tentativaErrada(visualizador: Registrado, anfitriao: Registrado): Promise<void> {
+  await pedir(visualizador, anfitriao, 30_000, true);
+  anfitriao.enviar({ tipo: 'responder_pedido', origem: visualizador.id, aceito: true, porSenha: true });
+  assert.equal((await visualizador.proxima()).tipo, 'sessao_iniciada');
+  assert.equal((await anfitriao.proxima()).tipo, 'sessao_iniciada');
+  anfitriao.enviar({ tipo: 'encerrar', motivo: 'senha_incorreta' });
+  const fim = await visualizador.proxima();
+  assert.ok(fim.tipo === 'sessao_encerrada' && fim.motivo === 'senha_incorreta');
+}
+
+async function pedirComSenha(visualizador: Registrado, destino: string) {
+  visualizador.enviar({ tipo: 'conectar', destino, comSenha: true });
+  return visualizador.proxima();
+}
+
+const deIp = (ip: string) => registrarCliente(servidor.porta, undefined, ip);
+
+test('senhas erradas do mesmo IP: esse IP fica bloqueado naquele ID (e só nele)', async () => {
+  await servidor.fechar();
+  await subir({ proxiesConfiaveis: 1, limites: { errosSenhaPorIpEId: { limite: 2, janelaMs: 60_000, bloqueioMs: 60_000 } } });
+  const atacante = await deIp('66.6.6.6');
+  const alvo = await deIp('200.1.1.1');
+  const outroAlvo = await deIp('200.2.2.2');
+
+  await tentativaErrada(atacante, alvo);
+  await tentativaErrada(atacante, alvo);
+  // Bloqueado ANTES de chegar ao anfitrião (que nem fica sabendo, e não expõe o IP).
+  assert.deepEqual(await pedirComSenha(atacante, alvo.id), { tipo: 'pedido_recusado', destino: alvo.id, motivo: 'bloqueado' });
+  await alvo.nadaRecebidoEm();
+
+  // Outro ID não é afetado.
+  atacante.enviar({ tipo: 'conectar', destino: outroAlvo.id, comSenha: true });
+  assert.equal((await outroAlvo.proxima()).tipo, 'pedido_conexao');
+});
+
+test('outro IP continua podendo tentar a senha no mesmo ID (o dono não é trancado para fora)', async () => {
+  await servidor.fechar();
+  await subir({ proxiesConfiaveis: 1, limites: { errosSenhaPorIpEId: { limite: 2, janelaMs: 60_000, bloqueioMs: 60_000 } } });
+  const atacante = await deIp('66.6.6.6');
+  const dono = await deIp('201.5.5.5');
+  const alvo = await deIp('200.1.1.1');
+  await tentativaErrada(atacante, alvo);
+  await tentativaErrada(atacante, alvo);
+
+  dono.enviar({ tipo: 'conectar', destino: alvo.id, comSenha: true });
+  assert.deepEqual(await alvo.proxima(), { tipo: 'pedido_conexao', origem: dono.id, prazoMs: 30_000, comSenha: true });
+});
+
+test('teto por ID: erros de vários IPs somados pausam o acesso com senha a ele', async () => {
+  await servidor.fechar();
+  await subir({
+    proxiesConfiaveis: 1,
+    limites: {
+      errosSenhaPorIpEId: { limite: 100, janelaMs: 60_000, bloqueioMs: 60_000 },
+      errosSenhaPorId: { limite: 3, janelaMs: 60_000, bloqueioMs: 60_000 },
+    },
+  });
+  const alvo = await deIp('200.1.1.1');
+  for (const ip of ['1.0.0.1', '1.0.0.2', '1.0.0.3']) await tentativaErrada(await deIp(ip), alvo);
+
+  const novo = await deIp('1.0.0.4');
+  assert.deepEqual(await pedirComSenha(novo, alvo.id), { tipo: 'pedido_recusado', destino: alvo.id, motivo: 'bloqueado' });
+
+  // O aceite comum (alguém presente no anfitrião) continua funcionando.
+  novo.enviar({ tipo: 'conectar', destino: alvo.id, comSenha: false });
+  assert.equal((await alvo.proxima()).tipo, 'pedido_conexao');
+});
+
+test('"senha_incorreta" numa sessão aceita manualmente não conta como erro de senha', async () => {
+  await servidor.fechar();
+  await subir({ proxiesConfiaveis: 1, limites: { errosSenhaPorIpEId: { limite: 1, janelaMs: 60_000, bloqueioMs: 60_000 } } });
+  const visualizador = await deIp('66.6.6.6');
+  const anfitriao = await deIp('200.1.1.1');
+  await pedir(visualizador, anfitriao); // sem senha
+  anfitriao.enviar({ tipo: 'responder_pedido', origem: visualizador.id, aceito: true, porSenha: false });
+  await visualizador.proxima();
+  await anfitriao.proxima();
+  anfitriao.enviar({ tipo: 'encerrar', motivo: 'senha_incorreta' }); // anfitrião com defeito
+  await visualizador.proxima();
+
+  visualizador.enviar({ tipo: 'conectar', destino: anfitriao.id, comSenha: true });
+  assert.equal((await anfitriao.proxima()).tipo, 'pedido_conexao');
+});

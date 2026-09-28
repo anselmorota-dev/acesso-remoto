@@ -13,10 +13,12 @@ export type Vinculo =
   | { tipo: 'pedindo'; anfitriao: Conexao; prazo: ReturnType<typeof setTimeout> }
   /** Anfitrião com um pedido para responder. */
   | { tipo: 'pedido_recebido'; visualizador: Conexao; comSenha: boolean }
-  | { tipo: 'em_sessao'; parceiro: Conexao; papel: Papel };
+  | { tipo: 'em_sessao'; parceiro: Conexao; papel: Papel; porSenha: boolean };
 
 export interface Conexao {
   readonly socket: WebSocket;
+  /** IP de quem conectou, já como chave dos limites (IPv6 agrupado por /64). */
+  readonly ip: string;
   id: IdCliente | null;
   /**
    * Registro em andamento: a chave apresentada e o desafio que ela precisa
