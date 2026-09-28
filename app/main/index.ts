@@ -1,7 +1,7 @@
 // Processo principal do Electron: cria janelas e é o único lugar que
 // executa input (mouse/teclado) no sistema.
 import { join } from 'node:path';
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, Menu } from 'electron';
 import { PROTOCOL_VERSION } from '@acesso-remoto/shared';
 import { configurarAtencao } from './atencao';
 import { configurarCaptura } from './captura';
@@ -43,6 +43,9 @@ function criarJanelaPrincipal(): void {
 
 void app.whenReady().then(() => {
   console.log(`[main] app pronto (protocolo v${PROTOCOL_VERSION})`);
+  // Sem o menu padrão do Electron: seus atalhos (Ctrl+W fecha, Ctrl+R recarrega,
+  // Alt abre o menu) agiriam no app em vez de ir para o computador remoto.
+  Menu.setApplicationMenu(null);
   configurarCaptura();
   configurarAtencao();
   configurarInput(); // antes de criar a janela: registra a limpeza ao fechá-la

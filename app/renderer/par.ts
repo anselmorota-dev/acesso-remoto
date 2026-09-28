@@ -212,9 +212,9 @@ export class ConexaoPar implements Par {
       case 'pong':
         this.opcoes.aoMedirLatencia?.(Math.round(performance.now() - mensagem.t));
         break;
-      case 'mouse_mover':
-      case 'mouse_botao':
-      case 'mouse_rolar':
+      default:
+        // Todo o resto é evento de input (mouse e teclado); o TypeScript
+        // confere que "mensagem" aqui é um EventoInput.
         // O visualizador nunca é controlado: ignora input que chegue a ele.
         if (this.opcoes.papel === 'anfitriao') this.opcoes.aoReceberInput?.(mensagem);
         break;

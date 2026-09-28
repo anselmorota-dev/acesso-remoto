@@ -1,6 +1,6 @@
 // Mensagens trocadas diretamente entre os dois apps pelo DataChannel do
 // WebRTC (sem passar pelo servidor): o ping que mede a latência e os
-// eventos de input que o visualizador envia ao anfitrião.
+// eventos de input (mouse e teclado) que o visualizador envia ao anfitrião.
 import { z } from 'zod';
 
 /** Maior mensagem aceita pelo canal, checada antes do JSON.parse. */
@@ -20,6 +20,28 @@ const rolagem = z.number().int().min(-ROLAGEM_MAXIMA).max(ROLAGEM_MAXIMA);
 export const esquemaBotaoMouse = z.enum(['esquerdo', 'meio', 'direito']);
 export type BotaoMouse = z.infer<typeof esquemaBotaoMouse>;
 
+/**
+ * Teclas enviadas pelo nome (mesmos nomes do robotjs). Letras, números e
+ * símbolos não entram aqui: como texto, viajam em "texto"; em atalhos
+ * (Ctrl+C), como um único caractere ASCII no campo "tecla".
+ */
+export const TECLAS_NOMEADAS = [
+  // Modificadores
+  'control', 'right_control', 'shift', 'right_shift', 'alt', 'right_alt', 'command',
+  // Edição e navegação
+  'enter', 'tab', 'backspace', 'delete', 'escape', 'space', 'insert', 'menu',
+  'up', 'down', 'left', 'right', 'home', 'end', 'pageup', 'pagedown',
+  // Funções
+  'f1', 'f2', 'f3', 'f4', 'f5', 'f6', 'f7', 'f8', 'f9', 'f10', 'f11', 'f12',
+] as const;
+export type TeclaNomeada = (typeof TECLAS_NOMEADAS)[number];
+
+/** Uma tecla nomeada ou um único caractere ASCII visível (usado em atalhos). */
+const tecla = z.union([z.enum(TECLAS_NOMEADAS), z.string().regex(/^[\x21-\x7e]$/)]);
+
+/** Maior texto num único evento (normalmente é um caractere por tecla). */
+export const TEXTO_MAXIMO = 32;
+
 const esquemasInput = [
   /** Move o cursor para a posição. */
   z.object({ tipo: z.literal('mouse_mover'), x: coordenada, y: coordenada }),
@@ -36,6 +58,17 @@ const esquemasInput = [
   }),
   /** Rola a roda do mouse, em pixels, como no navegador (dy > 0 = descer, dx > 0 = direita). */
   z.object({ tipo: z.literal('mouse_rolar'), dx: rolagem, dy: rolagem }),
+  /** Aperta ou solta uma tecla (teclas especiais, modificadores e atalhos). */
+  z.object({ tipo: z.literal('tecla'), tecla, pressionada: z.boolean() }),
+  /**
+   * Digita texto (letras, acentos, símbolos), já composto no visualizador:
+   * não depende do layout de teclado do anfitrião. Caracteres de controle
+   * (Enter, Tab...) são barrados: esses viajam como "tecla".
+   */
+  z.object({
+    tipo: z.literal('texto'),
+    texto: z.string().min(1).max(TEXTO_MAXIMO).regex(/^\P{Cc}+$/u),
+  }),
 ] as const;
 
 /** Eventos de input: chegam pelo canal e são repassados do renderer ao main. */

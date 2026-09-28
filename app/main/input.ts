@@ -1,4 +1,4 @@
-// Controle de mouse (e, na 2.3, teclado) no anfitrião.
+// Controle de mouse e teclado no anfitrião.
 //
 // Regra do projeto: só o processo main executa input. O renderer recebe os
 // eventos pelo DataChannel, valida e repassa por IPC; aqui eles são
@@ -19,6 +19,7 @@ const BOTOES_ROBOTJS: Record<BotaoMouse, 'left' | 'middle' | 'right'> = {
 function criarRobo(): Robo {
   // Por padrão o robotjs dorme 10 ms depois de cada ação, travando o main.
   robot.setMouseDelay(0);
+  robot.setKeyboardDelay(0);
   return {
     tamanhoTela: () => {
       const { width, height } = robot.getScreenSize();
@@ -27,6 +28,19 @@ function criarRobo(): Robo {
     moverPara: (x, y) => robot.moveMouse(x, y),
     botao: (botao, pressionado) => robot.mouseToggle(pressionado ? 'down' : 'up', BOTOES_ROBOTJS[botao]),
     rolar: (x, y) => robot.scrollMouse(x, y),
+    tecla: (tecla, pressionada) => {
+      try {
+        robot.keyToggle(tecla, pressionada ? 'down' : 'up');
+      } catch (erro) {
+        // O robotjs lança erro para tecla desconhecida (o esquema já deveria barrar).
+        console.warn(`[main] tecla não executada (${tecla}):`, erro);
+      }
+    },
+    digitar: (texto) => {
+      // unicodeTap envia uma unidade UTF-16 por vez (valores acima de 0xFFFF
+      // são cortados), então caracteres como emojis vão em duas partes.
+      for (let i = 0; i < texto.length; i++) robot.unicodeTap(texto.charCodeAt(i));
+    },
   };
 }
 

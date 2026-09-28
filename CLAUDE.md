@@ -83,7 +83,7 @@ Não tenho pressa: prefiro entender cada parte a avançar rápido.
 ### Fase 2 — Controlar
 - [x] 2.1 Popup Aceitar/Recusar no anfitrião (janela vem para frente, contagem regressiva, som)
 - [x] 2.2 DataChannel com eventos de mouse (mover, clicar, rolar)
-- [ ] 2.3 Teclado, incluindo atalhos (Ctrl, Alt, Shift) e caracteres com acento
+- [x] 2.3 Teclado, incluindo atalhos (Ctrl, Alt, Shift) e caracteres com acento
 - [ ] 2.4 Encerrar sessão pelos dois lados; indicador de sessão ativa
 - [ ] 2.5 Deploy do servidor no Render e teste entre duas redes diferentes
 - **Pronto quando:** consigo usar outro computador de verdade, pela internet.
@@ -111,8 +111,8 @@ Não tenho pressa: prefiro entender cada parte a avançar rápido.
 - **Render (plano gratuito):** o servidor "dorme" sem uso; a primeira conexão pode demorar alguns segundos.
 
 ## Estado atual
-Fase 1 concluída (etapas 1.1 a 1.5). Fase 2 em andamento: 2.1 e 2.2 concluídas. Próxima: 2.3
-(teclado, atalhos e acentos).
+Fase 1 concluída (etapas 1.1 a 1.5). Fase 2 em andamento: 2.1 a 2.3 concluídas. Próxima: 2.4
+(encerrar pelos dois lados e indicador de sessão ativa).
 
 Decisões já tomadas:
 - ID temporário: sorteado pelo servidor a cada conexão, guardado só em memória.
@@ -144,6 +144,17 @@ Decisões já tomadas:
   `screen` do Electron (que usa DIP). `robot.setMouseDelay(0)`: o padrão (10 ms) trava o main.
 - Rolagem em pixels do navegador (dy > 0 = descer); `rolagemParaSistema` converte (Windows:
   100 px = 120 unidades da roda; macOS: pixels; Linux: cliques).
+- Teclado (2.3), modelo híbrido: texto vai como caractere pronto (`texto`, composto no
+  visualizador: tecla morta + a = á; independe do layout do anfitrião; `robot.unicodeTap` por
+  unidade UTF-16) e teclas especiais/atalhos como teclas (`tecla`, nomes do robotjs em
+  `TECLAS_NOMEADAS` ou um caractere ASCII para atalhos; `robot.keyToggle`).
+- Modificadores ficam pendentes no visualizador (`renderer/teclado.ts`, TradutorTeclado) e só
+  vão ao anfitrião antes de tecla/atalho, clique ou rolagem; tocado sozinho vai como toque. Isso
+  evita que o AltGr do ABNT2 (Chromium: Ctrl+Alt) vire atalho no anfitrião.
+- Caractere de atalho: letra pelo layout (`key`), número pela tecla física (`code`).
+- Captura de teclado só com a tela remota à vista (`definirAtivo`); preventDefault em tudo.
+  Menu padrão do Electron removido (`Menu.setApplicationMenu(null)`): Ctrl+W/Ctrl+R/Alt
+  agiam no app. Win+tecla, Alt+Tab e Ctrl+Alt+Del não são capturáveis (o sistema age antes).
 - WebRTC (`renderer/par.ts`): o anfitrião cria a oferta e o DataChannel "controle"; trickle
   ICE com fila de candidatos que chegam antes da descrição remota. Ping/pong pelo canal mede
   a latência. Mensagens do canal validadas com Zod (`shared/src/canal.ts`), máx. 16 KB.
@@ -167,6 +178,13 @@ Notas para as próximas etapas:
 - robotjs guarda o tamanho da área de trabalho virtual na 1ª chamada e não atualiza: se os
   monitores mudarem com o app aberto, as coordenadas ficam erradas. Tratar na 5.1.
 - Mouse ainda não testado com escala do Windows ≠ 100% nem no macOS (esta máquina: 1366x768, 100%).
+- Teclado: AltGr e teclas mortas reais só testados em unidade (o CDP não simula AltGraph);
+  conferir à mão com teclado ABNT2. IME (japonês/chinês) ignorado. `unicodeTap` gera VK_PACKET:
+  alguns jogos que leem a tecla física não veem letras digitadas (modo "tecla física" com
+  koffi + SendInput seria a alternativa, se precisar).
+- Um "enviar Ctrl+Alt+Del" exige serviço do Windows (SAS); fica para a fase 5.
+- Teste E2E do teclado: criar um textarea de teste na janela do anfitrião, focá-lo com clique
+  remoto e só então digitar (as teclas vão para onde estiver o foco real do Windows).
 - Teste E2E do mouse: anfitrião e visualizador na mesma máquina movem o mouse real; posicionar
   as janelas lado a lado (user32 `SetWindowPos`) e clicar só em área vazia da janela do anfitrião.
 - Endurecimento pendente do Electron: `setPermissionRequestHandler`/`setPermissionCheckHandler`

@@ -1,6 +1,6 @@
 // Visualização remota: mostra ao visualizador a tela do anfitrião.
 // Enquanto está visível, a tela inicial fica escondida (body[data-tela]).
-// O mouse sobre o vídeo vira eventos de input para o anfitrião (controle.ts).
+// O mouse sobre o vídeo e o teclado viram eventos de input para o anfitrião (controle.ts).
 import type { EventoInput } from '@acesso-remoto/shared';
 import { montarControleRemoto } from '../controle';
 import type { EstadoSessao } from '../sessao';
@@ -35,7 +35,7 @@ export function montarTelaVisualizacao(opcoes: OpcoesTelaVisualizacao): TelaVisu
       const visivel = estado.fase === 'em_sessao' && estado.papel === 'visualizador';
       secao.hidden = !visivel;
       document.body.dataset['tela'] = visivel ? 'remota' : 'inicio';
-      if (!visivel) controle.redefinir();
+      controle.definirAtivo(visivel);
     },
     definirVideo(stream) {
       video.srcObject = stream;

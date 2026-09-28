@@ -1,5 +1,5 @@
-// Visualizador: transforma o mouse sobre o vídeo da tela remota em eventos
-// de input para o anfitrião.
+// Visualizador: transforma o mouse sobre o vídeo da tela remota e o teclado
+// em eventos de input para o anfitrião.
 //
 // O vídeo usa object-fit: contain, então a imagem pode ter faixas pretas
 // em volta; as coordenadas são calculadas sobre a área da imagem e enviadas
@@ -8,7 +8,11 @@
 // Para não inundar o canal, movimentos e rolagens são agrupados e enviados
 // no máximo uma vez por quadro de tela (requestAnimationFrame). Botões vão
 // na hora, com a posição junto.
+//
+// O teclado é traduzido pelo TradutorTeclado (teclado.ts). Enquanto a tela
+// remota está ativa, toda tecla vai para o anfitrião e nenhuma age aqui.
 import { ROLAGEM_MAXIMA, type BotaoMouse, type EventoInput } from '@acesso-remoto/shared';
+import { TradutorTeclado } from './teclado';
 
 export interface Retangulo {
   left: number;
@@ -66,11 +70,17 @@ const BOTOES: Partial<Record<number, BotaoMouse>> = { 0: 'esquerdo', 1: 'meio', 
 const limitarRolagem = (valor: number) => Math.max(-ROLAGEM_MAXIMA, Math.min(ROLAGEM_MAXIMA, Math.round(valor)));
 
 export interface ControleRemoto {
-  /** Esquece botões apertados e envios pendentes (fim da sessão). */
-  redefinir(): void;
+  /**
+   * Liga/desliga a captura (ligada só com a tela remota à vista). Ao desligar,
+   * solta o que estiver apertado e esquece envios pendentes.
+   */
+  definirAtivo(ativo: boolean): void;
 }
 
 export function montarControleRemoto(video: HTMLVideoElement, enviar: (evento: EventoInput) => void): ControleRemoto {
+  const teclado = new TradutorTeclado();
+  const enviarTodos = (eventos: EventoInput[]) => eventos.forEach(enviar);
+  let ativo = false;
   const pressionados = new Set<BotaoMouse>();
   let ultimoPonto: Ponto | null = null;
   let movimentoPendente: Ponto | null = null;
@@ -97,15 +107,28 @@ export function montarControleRemoto(video: HTMLVideoElement, enviar: (evento: E
     const dx = limitarRolagem(rolagemPendente.dx);
     const dy = limitarRolagem(rolagemPendente.dy);
     rolagemPendente = { dx: 0, dy: 0 };
-    if (dx !== 0 || dy !== 0) enviar({ tipo: 'mouse_rolar', dx, dy });
+    if (dx === 0 && dy === 0) return;
+    enviarTodos(teclado.sincronizar()); // Ctrl+roda (zoom), Shift+roda (horizontal)
+    enviar({ tipo: 'mouse_rolar', dx, dy });
   }
 
   function mudarBotao(botao: BotaoMouse, pressionado: boolean, ponto: Ponto): void {
     // O botão leva a posição mais recente; um "mover" pendente ficaria para trás.
     movimentoPendente = null;
-    if (pressionado) pressionados.add(botao);
-    else pressionados.delete(botao);
+    if (pressionado) {
+      pressionados.add(botao);
+      enviarTodos(teclado.sincronizar()); // Ctrl+clique, Shift+clique
+    } else {
+      pressionados.delete(botao);
+    }
     enviar({ tipo: 'mouse_botao', botao, pressionado, ...ponto });
+  }
+
+  function soltarTudo(): void {
+    if (ultimoPonto) {
+      for (const botao of [...pressionados]) mudarBotao(botao, false, ultimoPonto);
+    }
+    enviarTodos(teclado.soltarTudo());
   }
 
   // Apertar só vale sobre a imagem; soltar e mover são ouvidos na janela
@@ -135,12 +158,30 @@ export function montarControleRemoto(video: HTMLVideoElement, enviar: (evento: E
     agendarEnvio();
   });
 
-  // Se a janela perde o foco no meio de um arraste (ex.: Alt+Tab), o "soltar"
-  // nunca chegaria: solta tudo para o anfitrião não ficar com botão preso.
-  window.addEventListener('blur', () => {
-    if (!ultimoPonto) return;
-    for (const botao of [...pressionados]) mudarBotao(botao, false, ultimoPonto);
-  });
+  // Se a janela perde o foco no meio de um arraste ou com uma tecla apertada
+  // (ex.: Alt+Tab), o "soltar" nunca chegaria: solta tudo para o anfitrião
+  // não ficar com botão ou tecla presos.
+  window.addEventListener('blur', soltarTudo);
+
+  // Teclado: ouvido na janela inteira, na fase de captura (antes de qualquer
+  // outro elemento). preventDefault impede que a tecla aja aqui: Tab não troca
+  // o foco, Espaço não "clica" no botão Encerrar etc.
+  const aoTeclado = (evento: KeyboardEvent) => {
+    if (!ativo) return;
+    evento.preventDefault();
+    if (evento.isComposing) return; // composição de IME (ex.: japonês): fora do escopo
+    const campos = {
+      key: evento.key,
+      code: evento.code,
+      ctrlKey: evento.ctrlKey,
+      altKey: evento.altKey,
+      metaKey: evento.metaKey,
+      altGraph: evento.getModifierState('AltGraph'),
+    };
+    enviarTodos(evento.type === 'keydown' ? teclado.desceu(campos) : teclado.subiu(campos));
+  };
+  window.addEventListener('keydown', aoTeclado, true);
+  window.addEventListener('keyup', aoTeclado, true);
 
   video.addEventListener(
     'wheel',
@@ -158,8 +199,11 @@ export function montarControleRemoto(video: HTMLVideoElement, enviar: (evento: E
   video.addEventListener('contextmenu', (evento) => evento.preventDefault());
 
   return {
-    redefinir() {
-      pressionados.clear();
+    definirAtivo(novo) {
+      if (novo === ativo) return;
+      ativo = novo;
+      if (ativo) return;
+      soltarTudo();
       ultimoPonto = null;
       movimentoPendente = null;
       rolagemPendente = { dx: 0, dy: 0 };

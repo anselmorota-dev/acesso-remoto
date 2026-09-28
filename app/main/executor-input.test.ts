@@ -11,6 +11,8 @@ function criar(opcoes: { plataforma?: NodeJS.Platform } = {}) {
     moverPara: (x, y) => chamadas.push(`mover ${x},${y}`),
     botao: (botao: BotaoMouse, pressionado) => chamadas.push(`${botao} ${pressionado ? 'desce' : 'sobe'}`),
     rolar: (x, y) => chamadas.push(`rolar ${x},${y}`),
+    tecla: (tecla, pressionada) => chamadas.push(`tecla ${tecla} ${pressionada ? 'desce' : 'sobe'}`),
+    digitar: (texto) => chamadas.push(`digitar ${texto}`),
   };
   let agora = 0;
   const executor = new ExecutorInput(robo, { plataforma: opcoes.plataforma ?? 'win32', agora: () => agora });
@@ -79,6 +81,40 @@ test('rolagem é convertida para a unidade de cada sistema', () => {
   // Linux (X11): "cliques" da roda; qualquer rolagem vale pelo menos um.
   assert.deepEqual(rolagemParaSistema(0, 250, 'linux'), { x: 0, y: -3 });
   assert.deepEqual(rolagemParaSistema(0, -10, 'linux'), { x: 0, y: 1 });
+});
+
+test('teclas descem e sobem; repetição (tecla segurada) é executada', () => {
+  const { executor, chamadas } = criar();
+  executor.executar({ tipo: 'tecla', tecla: 'backspace', pressionada: true });
+  executor.executar({ tipo: 'tecla', tecla: 'backspace', pressionada: true }); // repetição
+  executor.executar({ tipo: 'tecla', tecla: 'backspace', pressionada: false });
+  executor.executar({ tipo: 'tecla', tecla: 'enter', pressionada: false }); // não estava apertada
+  assert.deepEqual(chamadas, ['tecla backspace desce', 'tecla backspace desce', 'tecla backspace sobe']);
+});
+
+test('texto é digitado como veio', () => {
+  const { executor, chamadas } = criar();
+  executor.executar({ tipo: 'texto', texto: 'ção' });
+  assert.deepEqual(chamadas, ['digitar ção']);
+});
+
+test('liberar solta teclas e botões apertados', () => {
+  const { executor, chamadas } = criar();
+  executor.executar({ tipo: 'tecla', tecla: 'control', pressionada: true });
+  executor.executar({ tipo: 'tecla', tecla: 'c', pressionada: true });
+  executor.executar({ tipo: 'mouse_botao', botao: 'esquerdo', pressionado: true, x: 0, y: 0 });
+  chamadas.length = 0;
+  executor.liberar();
+  assert.deepEqual(chamadas.sort(), ['esquerdo sobe', 'tecla c sobe', 'tecla control sobe']);
+});
+
+test('soltar tecla passa mesmo sem fichas', () => {
+  const { executor, chamadas } = criar();
+  executor.executar({ tipo: 'tecla', tecla: 'shift', pressionada: true });
+  for (let i = 0; i < LIMITE_EVENTOS_POR_SEGUNDO * 2; i++) executor.executar({ tipo: 'texto', texto: 'a' });
+  chamadas.length = 0;
+  assert.equal(executor.executar({ tipo: 'tecla', tecla: 'shift', pressionada: false }), true);
+  assert.deepEqual(chamadas, ['tecla shift sobe']);
 });
 
 test('rolagem zerada não chama o robô', () => {

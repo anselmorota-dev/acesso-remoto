@@ -4,9 +4,9 @@
 //   - converte as coordenadas normalizadas (0 a 1) em pixels do monitor;
 //   - limita a taxa de eventos, para um parceiro com defeito (ou mal-
 //     intencionado) não inundar o sistema;
-//   - lembra quais botões estão apertados, para soltá-los no fim da sessão
-//     (senão um botão "preso" continuaria arrastando no anfitrião).
-// Quem mexe de fato no mouse é o Robo (robotjs no app, um falso nos testes).
+//   - lembra quais botões e teclas estão apertados, para soltá-los no fim da
+//     sessão (senão um botão ou um Ctrl "preso" continuaria valendo no anfitrião).
+// Quem mexe de fato no mouse e no teclado é o Robo (robotjs no app, um falso nos testes).
 import type { BotaoMouse, EventoInput } from '@acesso-remoto/shared';
 
 export interface Robo {
@@ -16,6 +16,10 @@ export interface Robo {
   botao(botao: BotaoMouse, pressionado: boolean): void;
   /** Rola na unidade do sistema (ver rolagemParaSistema). */
   rolar(x: number, y: number): void;
+  /** Aperta/solta uma tecla nomeada ou de um caractere ASCII (atalhos). */
+  tecla(tecla: string, pressionada: boolean): void;
+  /** Digita o texto como caracteres Unicode, sem depender do layout do teclado. */
+  digitar(texto: string): void;
 }
 
 export interface OpcoesExecutor {
@@ -36,6 +40,7 @@ export class ExecutorInput {
   private readonly plataforma: NodeJS.Platform;
   private readonly agora: () => number;
   private readonly pressionados = new Set<BotaoMouse>();
+  private readonly teclasPressionadas = new Set<string>();
   // Limite de taxa por "balde de fichas": cada evento gasta uma ficha e as
   // fichas voltam aos poucos (LIMITE por segundo), até encher o balde.
   private fichas = LIMITE_EVENTOS_POR_SEGUNDO;
@@ -50,8 +55,9 @@ export class ExecutorInput {
 
   /** Executa o evento; false se foi descartado pelo limite de taxa. */
   executar(evento: EventoInput): boolean {
-    // Soltar um botão apertado sempre passa: descartá-lo deixaria o botão preso.
-    const soltando = evento.tipo === 'mouse_botao' && !evento.pressionado;
+    // Soltar botão ou tecla sempre passa: descartá-lo deixaria algo preso.
+    const soltando =
+      (evento.tipo === 'mouse_botao' && !evento.pressionado) || (evento.tipo === 'tecla' && !evento.pressionada);
     if (!soltando && !this.gastarFicha()) return false;
 
     switch (evento.tipo) {
@@ -70,14 +76,28 @@ export class ExecutorInput {
         if (x !== 0 || y !== 0) this.robo.rolar(x, y);
         break;
       }
+      case 'tecla':
+        // Descer de novo é permitido: é a repetição de uma tecla segurada.
+        if (evento.pressionada) {
+          this.teclasPressionadas.add(evento.tecla);
+        } else if (!this.teclasPressionadas.delete(evento.tecla)) {
+          break; // soltar uma tecla que não estava apertada
+        }
+        this.robo.tecla(evento.tecla, evento.pressionada);
+        break;
+      case 'texto':
+        this.robo.digitar(evento.texto);
+        break;
     }
     return true;
   }
 
-  /** Solta todos os botões apertados (fim da sessão). */
+  /** Solta todos os botões e teclas apertados (fim da sessão). */
   liberar(): void {
     for (const botao of this.pressionados) this.robo.botao(botao, false);
     this.pressionados.clear();
+    for (const tecla of this.teclasPressionadas) this.robo.tecla(tecla, false);
+    this.teclasPressionadas.clear();
   }
 
   private mover(x: number, y: number): void {
