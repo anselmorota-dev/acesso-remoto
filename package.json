@@ -15,6 +15,7 @@
     "dev:server": "npm run dev -w @acesso-remoto/server",
     "dev:app": "npm run dev -w @acesso-remoto/app",
     "build": "npm run build --workspaces --if-present",
+    "preview": "npm run preview -w @acesso-remoto/app",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present"
   },

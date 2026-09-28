@@ -32,8 +32,13 @@ Não tenho pressa: prefiro entender cada parte a avançar rápido.
 - `npm run typecheck` — checagem de tipos de todos os pacotes
 - `npm test` — testes automáticos (servidor e renderer do app)
 - `npm run build` — build do app (saída em `app/out/`)
-- Configuração pública do app em `app/.env` (ex.: `RENDERER_VITE_SERVIDOR_URL`);
-  segredos/ajustes pessoais em `*.local` (fora do git)
+- `npm run preview` — build de produção e abre o app usando o servidor do Render
+- Configuração pública do app em `app/.env` (desenvolvimento: `ws://localhost:8080`) e
+  `app/.env.production` (produção: `wss://` do Render); segredos/ajustes pessoais em
+  `*.local` (fora do git)
+- Repositório: https://github.com/anselmorota-dev/acesso-remoto (privado, branch `main`);
+  cada push na `main` refaz o deploy do servidor no Render.
+- Servidor publicado: https://acesso-remoto-sinalizacao.onrender.com (`/saude` → ok)
 - O pacote `shared` é TypeScript puro (sem build): o electron-vite o inclui no bundle
   e o tsx o executa direto.
 
@@ -176,8 +181,9 @@ Decisões já tomadas:
 - Deploy (2.5): `render.yaml` (Blueprint) na raiz; build `npm ci -w @acesso-remoto/server
   --omit=dev` (não instala o Electron), start `npm start -w @acesso-remoto/server` (tsx é
   dependência de produção do servidor), Node 24, verificação em `/saude`, deploy a cada push.
-  Simulado numa cópia limpa do repositório: ok. Faltam: o usuário criar o repositório no GitHub
-  e o Blueprint no Render; depois configurar a URL wss:// no app e testar entre duas redes.
+  Publicado (28/09/2026) e testado: duas instâncias nesta máquina conectam pelo Render (sessão,
+  vídeo, latência ~12 ms). Falta só o teste entre duas redes diferentes (outro notebook), que o
+  usuário fará depois; quando passar, marcar a 2.5.
 - Captura (1.5): o renderer chama `getDisplayMedia`; o main (`main/captura.ts`) autoriza só
   pedidos do quadro principal das nossas janelas e entrega o monitor principal. Até 30 fps,
   `contentHint = 'detail'` (prioriza nitidez). A trilha é adicionada antes da oferta.
