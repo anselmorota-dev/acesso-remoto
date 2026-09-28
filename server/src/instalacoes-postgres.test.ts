@@ -4,7 +4,20 @@
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import { after, before, test } from 'node:test';
-import { InstalacoesPostgres } from './instalacoes-postgres.js';
+import { InstalacoesPostgres, comCertificadoVerificado } from './instalacoes-postgres.js';
+
+// Este roda sempre (não precisa de banco).
+test('a URL do banco passa a exigir a checagem completa do certificado', () => {
+  const neon = 'postgresql://usuario:s%40nha@ep-exemplo.us-west-2.aws.neon.tech/neondb?sslmode=require&channel_binding=require';
+  const ajustada = new URL(comCertificadoVerificado(neon));
+  assert.equal(ajustada.searchParams.get('sslmode'), 'verify-full');
+  assert.equal(ajustada.searchParams.get('channel_binding'), 'require');
+  assert.equal(ajustada.password, 's%40nha'); // senha com caractere especial preservada
+  // Já forte, ausente ou desligado de propósito: não mexe.
+  for (const url of ['postgresql://u:p@h/db?sslmode=verify-full', 'postgresql://u:p@localhost/db', 'postgresql://u:p@h/db?sslmode=disable']) {
+    assert.equal(new URL(comCertificadoVerificado(url)).searchParams.get('sslmode'), new URL(url).searchParams.get('sslmode'));
+  }
+});
 
 const url = process.env.TESTE_DATABASE_URL;
 const opcoes = { skip: url ? false : 'defina TESTE_DATABASE_URL para rodar' };

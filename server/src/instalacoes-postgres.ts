@@ -19,6 +19,22 @@ const CRIAR_TABELA = `
 /** Tentativas de sortear um ID livre (colisões são raríssimas em 900 milhões). */
 const MAX_TENTATIVAS = 10;
 
+/**
+ * Garante a checagem completa do certificado TLS do banco. O Neon entrega a
+ * URL com "sslmode=require"; hoje o driver pg trata isso como "verify-full",
+ * mas a partir do pg 9 vai seguir a libpq, em que "require" nem confere o
+ * certificado (aceitaria um impostor no meio do caminho). Sem sslmode (ex.:
+ * banco local sem TLS) ou com "disable", a URL fica como está.
+ */
+export function comCertificadoVerificado(url: string): string {
+  const endereco = new URL(url);
+  const modo = endereco.searchParams.get('sslmode');
+  if (modo === 'prefer' || modo === 'require' || modo === 'verify-ca') {
+    endereco.searchParams.set('sslmode', 'verify-full');
+  }
+  return endereco.toString();
+}
+
 export class InstalacoesPostgres implements RepositorioInstalacoes {
   private readonly pool: pg.Pool;
 
@@ -29,7 +45,7 @@ export class InstalacoesPostgres implements RepositorioInstalacoes {
   /** Conecta ao banco (URL de conexão do Neon) e garante que a tabela existe. */
   static async abrir(url: string, log: (mensagem: string) => void = console.log): Promise<InstalacoesPostgres> {
     // Poucas conexões bastam: só há consulta quando um app se registra.
-    const pool = new pg.Pool({ connectionString: url, max: 3, idleTimeoutMillis: 60_000 });
+    const pool = new pg.Pool({ connectionString: comCertificadoVerificado(url), max: 3, idleTimeoutMillis: 60_000 });
     // O Neon suspende o banco sem uso e derruba conexões ociosas; sem este
     // listener, esse erro em segundo plano derrubaria o servidor inteiro.
     pool.on('error', (erro) => log(`[server] conexão com o banco caiu (será refeita): ${erro.message}`));
