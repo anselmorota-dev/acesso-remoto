@@ -1,0 +1,11 @@
+{
+  // Interface: roda no Chromium, sem acesso ao Node.
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": []
+  },
+  "include": ["."]
+}

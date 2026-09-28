@@ -1,0 +1,22 @@
+{
+  "name": "@acesso-remoto/app",
+  "version": "0.1.0",
+  "private": true,
+  "description": "App desktop (Electron) de acesso remoto",
+  "main": "./out/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "preview": "electron-vite preview",
+    "typecheck": "tsc -p tsconfig.json && tsc -p renderer/tsconfig.json"
+  },
+  "dependencies": {
+    "@acesso-remoto/shared": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^24",
+    "electron": "^44.4.5",
+    "electron-vite": "^5.0.0",
+    "vite": "^7"
+  }
+}

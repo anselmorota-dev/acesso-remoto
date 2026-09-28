@@ -1,0 +1,20 @@
+{
+  // Opções comuns a todos os pacotes. Cada pacote estende este arquivo
+  // e define apenas o que muda (módulos, bibliotecas do ambiente etc.).
+  "compilerOptions": {
+    "target": "ES2023",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    // A checagem de tipos é feita pelo tsc; quem gera o JavaScript
+    // é o tsx (servidor) e o electron-vite (app).
+    "noEmit": true
+  }
+}

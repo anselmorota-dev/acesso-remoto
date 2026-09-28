@@ -1,0 +1,12 @@
+{
+  // Processos que rodam com Node: main, preload e a configuração do build.
+  // O renderer (navegador) tem o próprio tsconfig em renderer/.
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2023"],
+    "types": ["node"]
+  },
+  "include": ["main", "preload", "electron.vite.config.ts"]
+}

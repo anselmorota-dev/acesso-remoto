@@ -1,0 +1,24 @@
+{
+  "name": "acesso-remoto",
+  "private": true,
+  "description": "App de acesso remoto (estilo AnyDesk) — monorepo",
+  "workspaces": [
+    "shared",
+    "server",
+    "app"
+  ],
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "dev": "concurrently -k -n server,app -c blue,magenta \"npm run dev -w @acesso-remoto/server\" \"npm run dev -w @acesso-remoto/app\"",
+    "dev:server": "npm run dev -w @acesso-remoto/server",
+    "dev:app": "npm run dev -w @acesso-remoto/app",
+    "build": "npm run build --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present"
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.5",
+    "typescript": "^7.0.2"
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "name": "@acesso-remoto/shared",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Tipos e formato das mensagens usados pelo servidor e pelo app",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  }
+}

@@ -1,0 +1,2 @@
+# Mantém fim de linha LF no repositório (o servidor roda em Linux no Render).
+* text=auto eol=lf

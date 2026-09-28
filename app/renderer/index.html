@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- CSP: só carrega scripts e recursos do próprio app. Na etapa 1.3 será
+         liberada a conexão com o servidor de sinalização (connect-src). -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:"
+    />
+    <title>Acesso Remoto</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <main>
+      <h1>Acesso Remoto</h1>
+      <p>Estrutura inicial funcionando.</p>
+      <ul id="info"></ul>
+    </main>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>
