@@ -6,4 +6,9 @@ declare global {
     /** Objeto exposto pelo preload via contextBridge. */
     readonly api: ApiDoPreload;
   }
+
+  /** Variáveis do app/.env visíveis no renderer. */
+  interface ImportMetaEnv {
+    readonly RENDERER_VITE_SERVIDOR_URL: string;
+  }
 }

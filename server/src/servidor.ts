@@ -162,15 +162,18 @@ export async function iniciarServidor(opcoes: OpcoesServidor): Promise<ServidorS
     http.listen(opcoes.porta, () => resolve());
   });
 
+  // Guardado para que chamar fechar() mais de uma vez seja seguro.
+  let fechamento: Promise<void> | null = null;
+
   return {
     porta: (http.address() as AddressInfo).port,
     quantidadeRegistrados: () => registrados.size,
     fechar: () =>
-      new Promise<void>((resolve, reject) => {
+      (fechamento ??= new Promise<void>((resolve, reject) => {
         clearInterval(heartbeat);
         for (const conexao of conexoes) conexao.socket.terminate();
         wss.close();
         http.close((erro) => (erro ? reject(erro) : resolve()));
-      }),
+      })),
   };
 }

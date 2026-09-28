@@ -4,6 +4,9 @@
   "private": true,
   "description": "Servidor de sinalização (IDs e conexão entre pares)",
   "type": "module",
+  "exports": {
+    "./servidor": "./src/servidor.ts"
+  },
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "start": "tsx src/index.ts",

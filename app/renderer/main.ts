@@ -1,18 +1,26 @@
-// Interface do app. Por enquanto só confirma que o preload (window.api)
-// e o pacote shared estão acessíveis a partir do renderer.
+// Ponto de entrada da interface: conecta no servidor de sinalização e
+// liga o estado dessa conexão à tela inicial.
 import { PROTOCOL_VERSION } from '@acesso-remoto/shared';
+import { formatarId } from './id';
+import { ClienteSinalizacao } from './sinalizacao';
+import { montarTelaInicio } from './telas/inicio';
 
-const lista = document.querySelector<HTMLUListElement>('#info');
+const tela = montarTelaInicio({
+  aoConectar(idRemoto) {
+    // O pedido de conexão ao outro computador chega na etapa 1.4.
+    console.log(`[app] pedido de conexão para ${idRemoto} (ainda não implementado)`);
+    const aviso = document.querySelector('#aviso-conectar');
+    if (aviso) aviso.textContent = `Conexão com ${formatarId(idRemoto)}: disponível na próxima etapa.`;
+  },
+});
 
-const linhas: Array<[string, string]> = [
-  ['Protocolo', `v${PROTOCOL_VERSION}`],
-  ['Electron', window.api.versoes.electron],
-  ['Chromium', window.api.versoes.chrome],
-  ['Node', window.api.versoes.node],
-];
+const sinalizacao = new ClienteSinalizacao({
+  url: import.meta.env.RENDERER_VITE_SERVIDOR_URL,
+  aoMudarEstado: (estado) => tela.atualizar(estado),
+});
+sinalizacao.iniciar();
 
-for (const [rotulo, valor] of linhas) {
-  const item = document.createElement('li');
-  item.textContent = `${rotulo}: ${valor}`;
-  lista?.append(item);
+const rodape = document.querySelector('#rodape');
+if (rodape) {
+  rodape.textContent = `Protocolo v${PROTOCOL_VERSION} · Electron ${window.api.versoes.electron}`;
 }

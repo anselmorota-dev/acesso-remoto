@@ -2,7 +2,7 @@ node_modules/
 dist/
 out/
 *.log
-.env
-.env.*
-!.env.example
+# Arquivos .env com configuração pública (ex.: URL do servidor) vão para o git;
+# segredos e ajustes pessoais ficam em *.local (convenção do Vite).
+*.local
 .DS_Store

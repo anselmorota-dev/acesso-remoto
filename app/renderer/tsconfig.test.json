@@ -1,0 +1,10 @@
+{
+  // Testes do renderer: rodam no Node (node:test), mas importam código
+  // da interface, então precisam dos tipos do navegador e do Node juntos.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["node"]
+  },
+  "include": ["."],
+  "exclude": []
+}

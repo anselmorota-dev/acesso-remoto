@@ -1,21 +1,147 @@
 :root {
   color-scheme: light dark;
   font-family: system-ui, sans-serif;
+  --fundo: #f4f5f7;
+  --cartao: #ffffff;
+  --texto: #1d2129;
+  --texto-suave: #5f6673;
+  --borda: #d8dce3;
+  --destaque: #d6452f;
+  --destaque-texto: #ffffff;
+  --ok: #1f8a4c;
+  --alerta: #b7791f;
+  --erro: #c53030;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --fundo: #15171c;
+    --cartao: #1f2229;
+    --texto: #e8eaee;
+    --texto-suave: #9aa1ad;
+    --borda: #343945;
+    --ok: #48bb78;
+    --alerta: #ecc94b;
+    --erro: #fc8181;
+  }
+}
+
+* {
+  box-sizing: border-box;
 }
 
 body {
   margin: 0;
-  display: grid;
-  place-items: center;
   min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--fundo);
+  color: var(--texto);
 }
 
-main {
+.inicio {
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 20px;
+  align-content: center;
+  max-width: 820px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 24px;
+}
+
+.cartao {
+  background: var(--cartao);
+  border: 1px solid var(--borda);
+  border-radius: 12px;
+  padding: 24px;
+}
+
+h2 {
+  margin: 0 0 16px;
+  font-size: 1.1rem;
+}
+
+.rotulo {
+  display: block;
+  margin: 0 0 6px;
+  font-size: 0.85rem;
+  color: var(--texto-suave);
+}
+
+.linha-id {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.id {
+  flex: 1;
+  min-width: 0;
+  font-size: 1.6rem;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+}
+
+input.id {
+  padding: 8px 10px;
+  border: 1px solid var(--borda);
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
+}
+
+input.id:focus {
+  outline: 2px solid var(--destaque);
+  outline-offset: 1px;
+}
+
+button {
+  padding: 10px 16px;
+  border: none;
+  border-radius: 8px;
+  background: var(--destaque);
+  color: var(--destaque-texto);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+button.secundario {
+  background: transparent;
+  color: var(--texto);
+  border: 1px solid var(--borda);
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.status {
+  min-height: 1.3em;
+  margin: 12px 0 0;
+  font-size: 0.9rem;
+  color: var(--texto-suave);
+}
+
+.status[data-fase='online'] {
+  color: var(--ok);
+}
+
+.status[data-fase='offline'] {
+  color: var(--alerta);
+}
+
+.status[data-fase='incompativel'] {
+  color: var(--erro);
+}
+
+.rodape {
+  padding: 12px;
   text-align: center;
-}
-
-ul {
-  list-style: none;
-  padding: 0;
-  opacity: 0.7;
+  font-size: 0.75rem;
+  color: var(--texto-suave);
 }

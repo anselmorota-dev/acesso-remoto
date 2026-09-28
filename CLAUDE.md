@@ -24,12 +24,16 @@ Não tenho pressa: prefiro entender cada parte a avançar rápido.
 - **Servidor em dev:** tsx (roda o TypeScript direto, com recarga)
 - **Validação de mensagens:** Zod 4, esquemas em `shared/src/mensagens.ts` (geram os tipos)
 - **Testes:** `node:test` + tsx, arquivos `*.test.ts` ao lado do código
+- **Interface:** HTML/TypeScript puro, sem framework. Cada tela em `renderer/telas/` expõe
+  `montar...()` (liga eventos uma vez) e `atualizar(estado)` (redesenha a partir do estado)
 
 ## Comandos
 - `npm run dev` — servidor + app juntos (ou `dev:server` / `dev:app` separados)
 - `npm run typecheck` — checagem de tipos de todos os pacotes
-- `npm test` — testes automáticos (hoje só do servidor)
+- `npm test` — testes automáticos (servidor e renderer do app)
 - `npm run build` — build do app (saída em `app/out/`)
+- Configuração pública do app em `app/.env` (ex.: `RENDERER_VITE_SERVIDOR_URL`);
+  segredos/ajustes pessoais em `*.local` (fora do git)
 - O pacote `shared` é TypeScript puro (sem build): o electron-vite o inclui no bundle
   e o tsx o executa direto.
 
@@ -71,7 +75,7 @@ Não tenho pressa: prefiro entender cada parte a avançar rápido.
 ### Fase 1 — Ver a tela
 - [x] 1.1 Estrutura do monorepo, TypeScript, scripts de dev
 - [x] 1.2 Servidor de sinalização: registrar cliente e atribuir ID de 9 dígitos
-- [ ] 1.3 App mostra o próprio ID e campo para conectar em outro ID
+- [x] 1.3 App mostra o próprio ID e campo para conectar em outro ID
 - [ ] 1.4 Troca de oferta/resposta/ICE via servidor
 - [ ] 1.5 Anfitrião captura a tela e o visualizador exibe
 - **Pronto quando:** duas instâncias (mesma máquina ou rede) se veem.
@@ -107,15 +111,22 @@ Não tenho pressa: prefiro entender cada parte a avançar rápido.
 - **Render (plano gratuito):** o servidor "dorme" sem uso; a primeira conexão pode demorar alguns segundos.
 
 ## Estado atual
-Fase 1, etapa 1.2 concluída. Próxima: 1.3 (app mostra o próprio ID e campo para conectar).
+Fase 1, etapa 1.3 concluída. Próxima: 1.4 (troca de oferta/resposta/ICE via servidor).
 
 Decisões já tomadas:
 - ID temporário: sorteado pelo servidor a cada conexão, guardado só em memória.
   ID fixo por instalação (com segredo de posse + banco) fica para a fase 3.
 - Protocolo: app manda `registrar {versao}` → servidor responde `registrado {id}` ou `erro {codigo}`.
   Servidor desconecta quem não se registra em 10 s e usa ping/pong a cada 30 s.
+- A conexão com o servidor fica no renderer (`renderer/sinalizacao.ts`), junto do WebRTC;
+  reconecta sozinha (esperas de 1, 2, 5 e 10 s) e recebe ID novo a cada reconexão.
+- O botão Conectar da tela inicial ainda só mostra um aviso; o pedido real entra na 1.4.
 
 Notas para as próximas etapas:
 - `@nut-tree-fork/nut-js` sem atualização desde 03/2025; `@jitsi/robotjs` ativo (07/2026).
   Reavaliar na fase 2, provável escolha: robotjs.
-- A CSP do renderer (`app/renderer/index.html`) precisa liberar o servidor em `connect-src` na 1.3.
+- Se a rede cair "em silêncio", o app só percebe quando o TCP expirar (o navegador não expõe
+  ping/pong). Se incomodar, criar um ping no nível da aplicação.
+- Ao testar o app pelo Claude Code: a variável `ELECTRON_RUN_AS_NODE=1` (herdada do VS Code)
+  precisa ser removida, e processos Electron em segundo plano morrem quando outra tarefa
+  de fundo termina, então orquestrar servidor + app num único script.

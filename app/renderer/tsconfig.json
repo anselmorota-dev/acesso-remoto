@@ -7,5 +7,7 @@
     "lib": ["ES2023", "DOM", "DOM.Iterable"],
     "types": []
   },
-  "include": ["."]
+  "include": ["."],
+  // Os testes rodam no Node e têm o próprio tsconfig (tsconfig.test.json).
+  "exclude": ["**/*.test.ts"]
 }
