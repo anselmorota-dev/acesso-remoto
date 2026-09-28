@@ -7,6 +7,7 @@ import {
   esquemaMensagemDoServidor,
   type IdCliente,
   type MensagemDoCliente,
+  type MensagemDoServidor,
 } from '@acesso-remoto/shared';
 
 export type EstadoSinalizacao =
@@ -19,6 +20,8 @@ export type EstadoSinalizacao =
 export interface OpcoesSinalizacao {
   url: string;
   aoMudarEstado: (estado: EstadoSinalizacao) => void;
+  /** Mensagens do servidor além do registro (pedidos, sessão, sinais, erros). */
+  aoMensagem?: (mensagem: Exclude<MensagemDoServidor, { tipo: 'registrado' }>) => void;
   /**
    * Esperas entre tentativas de reconexão; a última se repete.
    * Crescem aos poucos para não sobrecarregar um servidor que está voltando.
@@ -65,8 +68,11 @@ export class ClienteSinalizacao {
     this.opcoes.aoMudarEstado(estado);
   }
 
-  private enviar(mensagem: MensagemDoCliente): void {
-    this.socket?.send(JSON.stringify(mensagem));
+  /** Envia ao servidor; devolve false se a conexão não estiver aberta. */
+  enviar(mensagem: MensagemDoCliente): boolean {
+    if (this.socket?.readyState !== WebSocket.OPEN) return false;
+    this.socket.send(JSON.stringify(mensagem));
+    return true;
   }
 
   private conectar(): void {
@@ -99,8 +105,11 @@ export class ClienteSinalizacao {
             this.mudarEstado({ fase: 'incompativel', mensagem: mensagem.mensagem });
           } else {
             console.warn(`[sinalizacao] erro do servidor: ${mensagem.codigo} — ${mensagem.mensagem}`);
+            this.opcoes.aoMensagem?.(mensagem);
           }
           break;
+        default:
+          this.opcoes.aoMensagem?.(mensagem);
       }
     });
 

@@ -8,29 +8,60 @@ import { z } from 'zod';
 export const esquemaId = z.string().regex(/^[1-9]\d{8}$/, 'ID deve ter 9 dígitos');
 export type IdCliente = z.infer<typeof esquemaId>;
 
+/** Papel de cada lado numa sessão: quem mostra a tela e quem acessa. */
+export const esquemaPapel = z.enum(['anfitriao', 'visualizador']);
+export type Papel = z.infer<typeof esquemaPapel>;
+
+// ---------------------------------------------------------------------------
+// Sinais WebRTC: o servidor só repassa entre os dois lados de uma sessão.
+// ---------------------------------------------------------------------------
+
+/** Descrições SDP costumam ter poucos KB; o limite barra abusos. */
+const sdp = z.string().min(1).max(32 * 1024);
+
+export const esquemaSinal = z.discriminatedUnion('tipo', [
+  /** Proposta de conexão (o anfitrião cria). */
+  z.object({ tipo: z.literal('oferta'), sdp }),
+  /** Resposta à oferta (o visualizador cria). */
+  z.object({ tipo: z.literal('resposta'), sdp }),
+  /** Um caminho de rede possível (candidato ICE), enviado assim que descoberto. */
+  z.object({
+    tipo: z.literal('ice'),
+    candidato: z.object({
+      candidate: z.string().max(1024),
+      sdpMid: z.string().max(64).nullish(),
+      sdpMLineIndex: z.number().int().nonnegative().nullish(),
+      usernameFragment: z.string().max(256).nullish(),
+    }),
+  }),
+]);
+export type Sinal = z.infer<typeof esquemaSinal>;
+
 // ---------------------------------------------------------------------------
 // App → servidor
 // ---------------------------------------------------------------------------
 
-/** Primeira mensagem de toda conexão: pede um ID ao servidor. */
-const registrar = z.object({
-  tipo: z.literal('registrar'),
-  /** Versão do protocolo do app, para o servidor recusar versões incompatíveis. */
-  versao: z.number().int().nonnegative(),
-});
-
-export const esquemaMensagemDoCliente = z.discriminatedUnion('tipo', [registrar]);
+export const esquemaMensagemDoCliente = z.discriminatedUnion('tipo', [
+  /** Primeira mensagem de toda conexão: pede um ID ao servidor. */
+  z.object({
+    tipo: z.literal('registrar'),
+    /** Versão do protocolo do app, para o servidor recusar versões incompatíveis. */
+    versao: z.number().int().nonnegative(),
+  }),
+  /** Visualizador pede para acessar o computador com o ID "destino". */
+  z.object({ tipo: z.literal('conectar'), destino: esquemaId }),
+  /** Anfitrião aceita ou recusa o pedido vindo de "origem". */
+  z.object({ tipo: z.literal('responder_pedido'), origem: esquemaId, aceito: z.boolean() }),
+  /** Sinal WebRTC para o outro lado da sessão. */
+  z.object({ tipo: z.literal('sinal'), sinal: esquemaSinal }),
+  /** Cancela o pedido em andamento ou encerra a sessão atual. */
+  z.object({ tipo: z.literal('encerrar') }),
+]);
 export type MensagemDoCliente = z.infer<typeof esquemaMensagemDoCliente>;
 
 // ---------------------------------------------------------------------------
 // Servidor → app
 // ---------------------------------------------------------------------------
-
-/** Resposta ao "registrar": o ID que este app vai usar enquanto estiver conectado. */
-const registrado = z.object({
-  tipo: z.literal('registrado'),
-  id: esquemaId,
-});
 
 export const esquemaCodigoErro = z.enum([
   /** JSON malformado, tipo desconhecido ou campos inválidos. */
@@ -39,16 +70,56 @@ export const esquemaCodigoErro = z.enum([
   'versao_incompativel',
   /** A conexão tentou se registrar mais de uma vez. */
   'ja_registrado',
+  /** Mensagem que exige ID enviada antes de "registrar". */
+  'nao_registrado',
+  /** Tentou conectar no próprio ID. */
+  'destino_invalido',
+  /** Pediu nova conexão tendo um pedido ou sessão em andamento. */
+  'ja_em_sessao',
+  /** Respondeu a um pedido que não existe (ou já expirou). */
+  'pedido_inexistente',
+  /** Enviou sinal WebRTC sem estar numa sessão. */
+  'sem_sessao',
 ]);
 export type CodigoErro = z.infer<typeof esquemaCodigoErro>;
 
-const erro = z.object({
-  tipo: z.literal('erro'),
-  codigo: esquemaCodigoErro,
-  mensagem: z.string(),
-});
+export const esquemaMotivoRecusa = z.enum([
+  /** O anfitrião clicou em Recusar. */
+  'recusado',
+  /** Não há ninguém online com esse ID. */
+  'offline',
+  /** O anfitrião já está em outra sessão ou pedido. */
+  'ocupado',
+  /** O anfitrião não respondeu a tempo. */
+  'sem_resposta',
+]);
+export type MotivoRecusa = z.infer<typeof esquemaMotivoRecusa>;
 
-export const esquemaMensagemDoServidor = z.discriminatedUnion('tipo', [registrado, erro]);
+export const esquemaMotivoEncerramento = z.enum([
+  /** O outro lado clicou em Encerrar. */
+  'encerrada_pelo_parceiro',
+  /** O outro lado perdeu a conexão com o servidor. */
+  'parceiro_desconectou',
+]);
+export type MotivoEncerramento = z.infer<typeof esquemaMotivoEncerramento>;
+
+export const esquemaMensagemDoServidor = z.discriminatedUnion('tipo', [
+  /** Resposta ao "registrar": o ID que este app vai usar enquanto estiver conectado. */
+  z.object({ tipo: z.literal('registrado'), id: esquemaId }),
+  z.object({ tipo: z.literal('erro'), codigo: esquemaCodigoErro, mensagem: z.string() }),
+  /** Para o anfitrião: alguém quer acessar este computador. */
+  z.object({ tipo: z.literal('pedido_conexao'), origem: esquemaId }),
+  /** Para o anfitrião: quem pediu desistiu (cancelou, caiu ou o prazo acabou). */
+  z.object({ tipo: z.literal('pedido_cancelado'), origem: esquemaId }),
+  /** Para o visualizador: o pedido não foi aceito. */
+  z.object({ tipo: z.literal('pedido_recusado'), destino: esquemaId, motivo: esquemaMotivoRecusa }),
+  /** Para os dois lados: pedido aceito, podem começar a negociar o WebRTC. */
+  z.object({ tipo: z.literal('sessao_iniciada'), parceiro: esquemaId, papel: esquemaPapel }),
+  /** Sinal WebRTC vindo do outro lado da sessão. */
+  z.object({ tipo: z.literal('sinal'), sinal: esquemaSinal }),
+  /** A sessão terminou pelo outro lado. */
+  z.object({ tipo: z.literal('sessao_encerrada'), motivo: esquemaMotivoEncerramento }),
+]);
 export type MensagemDoServidor = z.infer<typeof esquemaMensagemDoServidor>;
 
 // ---------------------------------------------------------------------------

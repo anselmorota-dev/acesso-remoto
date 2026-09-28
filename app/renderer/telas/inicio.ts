@@ -3,21 +3,17 @@
 // devolve "atualizar", que redesenha a tela a partir do estado atual.
 import type { IdCliente } from '@acesso-remoto/shared';
 import { ehIdValido, extrairDigitos, formatarId } from '../id';
+import type { EstadoSessao } from '../sessao';
 import type { EstadoSinalizacao } from '../sinalizacao';
+import { elemento } from './util';
 
 export interface TelaInicio {
-  atualizar(estado: EstadoSinalizacao): void;
+  atualizar(estado: EstadoSinalizacao, sessao: EstadoSessao): void;
 }
 
 export interface OpcoesTelaInicio {
   /** Chamado quando o usuário pede para acessar outro ID (já validado). */
   aoConectar: (idRemoto: IdCliente) => void;
-}
-
-function elemento<T extends HTMLElement>(seletor: string): T {
-  const encontrado = document.querySelector<T>(seletor);
-  if (!encontrado) throw new Error(`Elemento ${seletor} não encontrado`);
-  return encontrado;
 }
 
 export function montarTelaInicio(opcoes: OpcoesTelaInicio): TelaInicio {
@@ -30,14 +26,16 @@ export function montarTelaInicio(opcoes: OpcoesTelaInicio): TelaInicio {
   const aviso = elemento<HTMLParagraphElement>('#aviso-conectar');
 
   let estado: EstadoSinalizacao = { fase: 'conectando' };
+  let sessao: EstadoSessao = { fase: 'livre' };
 
   /** Liga/desliga o botão Conectar e explica o motivo quando desligado. */
   function atualizarFormulario(): void {
     const digitos = extrairDigitos(campoRemoto.value);
     const online = estado.fase === 'online';
     const proprioId = estado.fase === 'online' && digitos === estado.id;
+    const livre = sessao.fase === 'livre';
 
-    botaoConectar.disabled = !online || !ehIdValido(digitos) || proprioId;
+    botaoConectar.disabled = !online || !livre || !ehIdValido(digitos) || proprioId;
     if (proprioId) {
       aviso.textContent = 'Esse é o ID deste computador.';
     } else if (digitos.length === 9 && !ehIdValido(digitos)) {
@@ -72,8 +70,9 @@ export function montarTelaInicio(opcoes: OpcoesTelaInicio): TelaInicio {
   });
 
   return {
-    atualizar(novoEstado) {
+    atualizar(novoEstado, novaSessao) {
       estado = novoEstado;
+      sessao = novaSessao;
       status.dataset['fase'] = estado.fase;
 
       if (estado.fase === 'online') {

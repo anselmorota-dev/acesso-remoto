@@ -145,3 +145,72 @@ button:disabled {
   font-size: 0.75rem;
   color: var(--texto-suave);
 }
+
+/* Painel de sessão ------------------------------------------------------- */
+
+.painel {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 16px auto 0;
+  max-width: 820px;
+  width: calc(100% - 48px);
+  padding: 12px 16px;
+  border: 1px solid var(--borda);
+  border-left: 4px solid var(--texto-suave);
+  border-radius: 8px;
+  background: var(--cartao);
+}
+
+.painel[hidden] {
+  display: none;
+}
+
+.painel[data-fase='pedindo'] {
+  border-left-color: var(--alerta);
+}
+
+.painel[data-fase='em_sessao'] {
+  border-left-color: var(--destaque);
+}
+
+.painel[data-fase='em_sessao'][data-conexao='conectado'] {
+  border-left-color: var(--ok);
+}
+
+.painel-texto {
+  flex: 1;
+  margin: 0;
+}
+
+/* Caixa de aceite -------------------------------------------------------- */
+
+.dialogo {
+  max-width: 420px;
+  padding: 24px;
+  border: 1px solid var(--borda);
+  border-radius: 12px;
+  background: var(--cartao);
+  color: var(--texto);
+}
+
+.dialogo::backdrop {
+  background: rgb(0 0 0 / 0.45);
+}
+
+.id-inline {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.nota {
+  font-size: 0.85rem;
+  color: var(--texto-suave);
+}
+
+.acoes {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 20px;
+}

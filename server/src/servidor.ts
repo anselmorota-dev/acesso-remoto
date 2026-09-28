@@ -1,9 +1,9 @@
 // Servidor de sinalização: aceita conexões WebSocket dos apps, atribui um
-// ID a cada um e (a partir da 1.4) repassa as mensagens entre os pares.
+// ID a cada um e repassa as mensagens de sinalização entre os pares.
 // Nunca recebe vídeo nem comandos de input, só mensagens de sinalização.
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { WebSocketServer, type RawData, type WebSocket } from 'ws';
+import { WebSocket, WebSocketServer, type RawData } from 'ws';
 import {
   PROTOCOL_VERSION,
   decodificarMensagem,
@@ -12,7 +12,9 @@ import {
   type IdCliente,
   type MensagemDoServidor,
 } from '@acesso-remoto/shared';
+import type { Conexao, ConexaoRegistrada } from './conexao.js';
 import { gerarId } from './ids.js';
+import { criarGerenciadorSessoes } from './sessoes.js';
 
 export interface OpcoesServidor {
   /** Porta TCP; 0 escolhe uma porta livre (útil nos testes). */
@@ -21,6 +23,8 @@ export interface OpcoesServidor {
   intervaloHeartbeatMs?: number;
   /** Tempo máximo entre conectar e mandar "registrar". */
   prazoRegistroMs?: number;
+  /** Tempo que o anfitrião tem para aceitar ou recusar um pedido. */
+  prazoRespostaPedidoMs?: number;
   /** Tamanho máximo de uma mensagem. Ofertas SDP têm poucos KB. */
   tamanhoMaximoMensagem?: number;
   /** Função de log; nos testes pode ser silenciada. */
@@ -36,14 +40,6 @@ export interface ServidorSinalizacao {
   fechar(): Promise<void>;
 }
 
-/** Estado que o servidor guarda de cada conexão aberta. */
-interface Conexao {
-  readonly socket: WebSocket;
-  id: IdCliente | null;
-  /** Vira false a cada ping e volta a true quando chega o pong. */
-  viva: boolean;
-}
-
 // Códigos de fechamento do WebSocket (RFC 6455).
 const FECHAMENTO_VIOLACAO_POLITICA = 1008;
 
@@ -51,6 +47,7 @@ export async function iniciarServidor(opcoes: OpcoesServidor): Promise<ServidorS
   const {
     intervaloHeartbeatMs = 30_000,
     prazoRegistroMs = 10_000,
+    prazoRespostaPedidoMs = 30_000,
     tamanhoMaximoMensagem = 64 * 1024,
     log = console.log,
   } = opcoes;
@@ -71,11 +68,43 @@ export async function iniciarServidor(opcoes: OpcoesServidor): Promise<ServidorS
   const wss = new WebSocketServer({ server: http, maxPayload: tamanhoMaximoMensagem });
 
   function enviar(conexao: Conexao, mensagem: MensagemDoServidor): void {
-    conexao.socket.send(JSON.stringify(mensagem));
+    // A conexão pode estar fechando (ex.: avisar o parceiro de quem acabou de cair).
+    if (conexao.socket.readyState === WebSocket.OPEN) {
+      conexao.socket.send(JSON.stringify(mensagem));
+    }
   }
 
   function enviarErro(conexao: Conexao, codigo: CodigoErro, mensagem: string): void {
     enviar(conexao, { tipo: 'erro', codigo, mensagem });
+  }
+
+  const sessoes = criarGerenciadorSessoes({
+    registrados,
+    enviar,
+    enviarErro,
+    prazoRespostaMs: prazoRespostaPedidoMs,
+    log,
+  });
+
+  function registrar(conexao: Conexao, versao: number): void {
+    if (conexao.id) {
+      enviarErro(conexao, 'ja_registrado', `Esta conexão já tem o ID ${conexao.id}`);
+      return;
+    }
+    if (versao !== PROTOCOL_VERSION) {
+      enviarErro(
+        conexao,
+        'versao_incompativel',
+        `Servidor usa o protocolo v${PROTOCOL_VERSION}, app usa v${versao}`,
+      );
+      conexao.socket.close(FECHAMENTO_VIOLACAO_POLITICA, 'versao_incompativel');
+      return;
+    }
+    const id = gerarId((candidato) => registrados.has(candidato));
+    conexao.id = id;
+    registrados.set(id, conexao);
+    enviar(conexao, { tipo: 'registrado', id });
+    log(`[server] registrado ${id} (online: ${registrados.size})`);
   }
 
   function aoReceber(conexao: Conexao, dados: RawData, binario: boolean): void {
@@ -88,33 +117,36 @@ export async function iniciarServidor(opcoes: OpcoesServidor): Promise<ServidorS
       return;
     }
 
+    if (mensagem.tipo === 'registrar') {
+      registrar(conexao, mensagem.versao);
+      return;
+    }
+
+    // Todas as outras mensagens exigem que a conexão já tenha um ID.
+    if (!conexao.id) {
+      enviarErro(conexao, 'nao_registrado', 'Envie "registrar" antes de qualquer outra mensagem');
+      return;
+    }
+    const registrada = conexao as ConexaoRegistrada;
+
     switch (mensagem.tipo) {
-      case 'registrar': {
-        if (conexao.id) {
-          enviarErro(conexao, 'ja_registrado', `Esta conexão já tem o ID ${conexao.id}`);
-          return;
-        }
-        if (mensagem.versao !== PROTOCOL_VERSION) {
-          enviarErro(
-            conexao,
-            'versao_incompativel',
-            `Servidor usa o protocolo v${PROTOCOL_VERSION}, app usa v${mensagem.versao}`,
-          );
-          conexao.socket.close(FECHAMENTO_VIOLACAO_POLITICA, 'versao_incompativel');
-          return;
-        }
-        const id = gerarId((candidato) => registrados.has(candidato));
-        conexao.id = id;
-        registrados.set(id, conexao);
-        enviar(conexao, { tipo: 'registrado', id });
-        log(`[server] registrado ${id} (online: ${registrados.size})`);
+      case 'conectar':
+        sessoes.conectar(registrada, mensagem.destino);
         return;
-      }
+      case 'responder_pedido':
+        sessoes.responder(registrada, mensagem.origem, mensagem.aceito);
+        return;
+      case 'sinal':
+        sessoes.repassarSinal(registrada, mensagem.sinal);
+        return;
+      case 'encerrar':
+        sessoes.encerrar(registrada, 'encerrada_pelo_parceiro');
+        return;
     }
   }
 
   wss.on('connection', (socket) => {
-    const conexao: Conexao = { socket, id: null, viva: true };
+    const conexao: Conexao = { socket, id: null, viva: true, vinculo: { tipo: 'livre' } };
     conexoes.add(conexao);
 
     // Quem conecta e não se registra a tempo é desconectado, para não
@@ -136,6 +168,8 @@ export async function iniciarServidor(opcoes: OpcoesServidor): Promise<ServidorS
     socket.on('close', () => {
       clearTimeout(prazo);
       conexoes.delete(conexao);
+      // Avisa o outro lado de um pedido ou sessão em andamento.
+      sessoes.encerrar(conexao, 'parceiro_desconectou');
       if (conexao.id) {
         registrados.delete(conexao.id);
         log(`[server] saiu ${conexao.id} (online: ${registrados.size})`);

@@ -12,6 +12,24 @@
     <link rel="stylesheet" href="./style.css" />
   </head>
   <body>
+    <!-- Painel de sessão: pedido em andamento, sessão ativa ou aviso do último resultado. -->
+    <section id="painel-sessao" class="painel" aria-live="polite" hidden>
+      <p id="texto-sessao" class="painel-texto"></p>
+      <button id="botao-sessao" type="button" class="secundario"></button>
+    </section>
+
+    <!-- Caixa de aceite: o anfitrião decide se permite o acesso. -->
+    <dialog id="dialogo-pedido" class="dialogo" aria-labelledby="titulo-pedido">
+      <h2 id="titulo-pedido">Pedido de acesso</h2>
+      <p>O computador <strong id="origem-pedido" class="id-inline"></strong> quer acessar este computador.</p>
+      <p class="nota">Só aceite se você conhece e confia em quem está pedindo.</p>
+      <div class="acoes">
+        <!-- O foco começa em Recusar: um Enter acidental não libera o acesso. -->
+        <button id="recusar-pedido" type="button" class="secundario" autofocus>Recusar</button>
+        <button id="aceitar-pedido" type="button">Aceitar</button>
+      </div>
+    </dialog>
+
     <main class="inicio">
       <section class="cartao" aria-labelledby="titulo-este">
         <h2 id="titulo-este">Este computador</h2>

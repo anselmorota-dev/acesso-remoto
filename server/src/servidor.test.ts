@@ -3,11 +3,11 @@
 import assert from 'node:assert/strict';
 import { afterEach, beforeEach, test } from 'node:test';
 import { WebSocket } from 'ws';
-import { PROTOCOL_VERSION, type MensagemDoServidor } from '@acesso-remoto/shared';
+import { PROTOCOL_VERSION } from '@acesso-remoto/shared';
 import { iniciarServidor, type OpcoesServidor, type ServidorSinalizacao } from './servidor.js';
+import { aguardar, conectarCliente, encerrarClientes, registrarCliente } from './auxiliares-teste.js';
 
 let servidor: ServidorSinalizacao;
-const clientes: WebSocket[] = [];
 
 async function subir(opcoes: Partial<OpcoesServidor> = {}): Promise<void> {
   servidor = await iniciarServidor({ porta: 0, log: () => {}, ...opcoes });
@@ -16,57 +16,12 @@ async function subir(opcoes: Partial<OpcoesServidor> = {}): Promise<void> {
 beforeEach(() => subir());
 
 afterEach(async () => {
-  for (const cliente of clientes.splice(0)) cliente.terminate();
+  encerrarClientes();
   await servidor.fechar();
 });
 
-/** Cliente de teste que enfileira as mensagens recebidas. */
-async function conectar(opcoes: { autoPong?: boolean } = {}) {
-  const socket = new WebSocket(`ws://127.0.0.1:${servidor.porta}`, opcoes);
-  clientes.push(socket);
-  const fila: MensagemDoServidor[] = [];
-  const esperando: Array<(m: MensagemDoServidor) => void> = [];
-  socket.on('message', (dados) => {
-    const mensagem = JSON.parse(dados.toString()) as MensagemDoServidor;
-    const resolver = esperando.shift();
-    if (resolver) resolver(mensagem);
-    else fila.push(mensagem);
-  });
-  const fechado = new Promise<number>((resolve) => socket.on('close', (codigo) => resolve(codigo)));
-  await new Promise((resolve, reject) => {
-    socket.once('open', resolve);
-    socket.once('error', reject);
-  });
-
-  return {
-    socket,
-    fechado,
-    enviar: (dados: unknown) => socket.send(typeof dados === 'string' ? dados : JSON.stringify(dados)),
-    proxima: () =>
-      new Promise<MensagemDoServidor>((resolve) => {
-        const pronta = fila.shift();
-        if (pronta) resolve(pronta);
-        else esperando.push(resolve);
-      }),
-  };
-}
-
-async function conectarRegistrado() {
-  const cliente = await conectar();
-  cliente.enviar({ tipo: 'registrar', versao: PROTOCOL_VERSION });
-  const resposta = await cliente.proxima();
-  assert.equal(resposta.tipo, 'registrado');
-  return { ...cliente, id: resposta.id };
-}
-
-/** Espera uma condição ficar verdadeira (para efeitos assíncronos no servidor). */
-async function aguardar(condicao: () => boolean, limiteMs = 2000): Promise<void> {
-  const inicio = Date.now();
-  while (!condicao()) {
-    if (Date.now() - inicio > limiteMs) throw new Error('Tempo esgotado');
-    await new Promise((r) => setTimeout(r, 10));
-  }
-}
+const conectar = (opcoes?: { autoPong?: boolean }) => conectarCliente(servidor.porta, opcoes);
+const conectarRegistrado = () => registrarCliente(servidor.porta);
 
 test('registrar devolve um ID de 9 dígitos', async () => {
   const { id } = await conectarRegistrado();
@@ -75,8 +30,8 @@ test('registrar devolve um ID de 9 dígitos', async () => {
 });
 
 test('cada cliente recebe um ID diferente', async () => {
-  const clientesRegistrados = await Promise.all(Array.from({ length: 20 }, conectarRegistrado));
-  const ids = new Set(clientesRegistrados.map((c) => c.id));
+  const clientes = await Promise.all(Array.from({ length: 20 }, conectarRegistrado));
+  const ids = new Set(clientes.map((c) => c.id));
   assert.equal(ids.size, 20);
 });
 
@@ -116,6 +71,13 @@ test('mensagens inválidas recebem erro sem derrubar a conexão', async () => {
   // Depois dos erros, ainda consegue se registrar normalmente.
   cliente.enviar({ tipo: 'registrar', versao: PROTOCOL_VERSION });
   assert.equal((await cliente.proxima()).tipo, 'registrado');
+});
+
+test('mensagens que exigem ID são recusadas antes do registro', async () => {
+  const cliente = await conectar();
+  cliente.enviar({ tipo: 'conectar', destino: '123456789' });
+  const resposta = await cliente.proxima();
+  assert.equal(resposta.tipo === 'erro' && resposta.codigo, 'nao_registrado');
 });
 
 test('versão de protocolo diferente é recusada e a conexão fechada', async () => {

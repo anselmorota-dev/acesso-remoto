@@ -76,12 +76,13 @@ Não tenho pressa: prefiro entender cada parte a avançar rápido.
 - [x] 1.1 Estrutura do monorepo, TypeScript, scripts de dev
 - [x] 1.2 Servidor de sinalização: registrar cliente e atribuir ID de 9 dígitos
 - [x] 1.3 App mostra o próprio ID e campo para conectar em outro ID
-- [ ] 1.4 Troca de oferta/resposta/ICE via servidor
+- [x] 1.4 Troca de oferta/resposta/ICE via servidor
 - [ ] 1.5 Anfitrião captura a tela e o visualizador exibe
 - **Pronto quando:** duas instâncias (mesma máquina ou rede) se veem.
 
 ### Fase 2 — Controlar
-- [ ] 2.1 Popup Aceitar/Recusar no anfitrião
+- [ ] 2.1 Popup Aceitar/Recusar no anfitrião (o aceite básico já existe desde a 1.4; falta
+  trazer a janela para frente, contagem regressiva, som)
 - [ ] 2.2 DataChannel com eventos de mouse (mover, clicar, rolar)
 - [ ] 2.3 Teclado, incluindo atalhos (Ctrl, Alt, Shift) e caracteres com acento
 - [ ] 2.4 Encerrar sessão pelos dois lados; indicador de sessão ativa
@@ -111,7 +112,7 @@ Não tenho pressa: prefiro entender cada parte a avançar rápido.
 - **Render (plano gratuito):** o servidor "dorme" sem uso; a primeira conexão pode demorar alguns segundos.
 
 ## Estado atual
-Fase 1, etapa 1.3 concluída. Próxima: 1.4 (troca de oferta/resposta/ICE via servidor).
+Fase 1, etapa 1.4 concluída. Próxima: 1.5 (anfitrião captura a tela e o visualizador exibe).
 
 Decisões já tomadas:
 - ID temporário: sorteado pelo servidor a cada conexão, guardado só em memória.
@@ -120,7 +121,18 @@ Decisões já tomadas:
   Servidor desconecta quem não se registra em 10 s e usa ping/pong a cada 30 s.
 - A conexão com o servidor fica no renderer (`renderer/sinalizacao.ts`), junto do WebRTC;
   reconecta sozinha (esperas de 1, 2, 5 e 10 s) e recebe ID novo a cada reconexão.
-- O botão Conectar da tela inicial ainda só mostra um aviso; o pedido real entra na 1.4.
+- Aceite do anfitrião implementado já na 1.4 (caixa <dialog>, foco inicial em Recusar,
+  Esc = recusar), para cumprir a regra de segurança desde a primeira conexão.
+- Sessões no servidor (`server/src/sessoes.ts`): conectar → pedido_conexao → responder_pedido
+  → sessao_iniciada (para os dois). Só depois disso o servidor repassa `sinal` entre o par;
+  pedido expira em 30 s; um pedido/sessão por vez de cada lado; queda avisa o parceiro.
+- WebRTC (`renderer/par.ts`): o anfitrião cria a oferta e o DataChannel "controle"; trickle
+  ICE com fila de candidatos que chegam antes da descrição remota. Ping/pong pelo canal mede
+  a latência. Mensagens do canal validadas com Zod (`shared/src/canal.ts`), máx. 16 KB.
+- Sem STUN/TURN ainda (`iceServers: []`): funciona na mesma máquina/rede. Decidir STUN na 2.5.
+- Se a conexão com o servidor cai, a sessão é encerrada (mesmo que o P2P ainda funcione).
+- `renderer/sessao.ts` (ControladorSessao) é a máquina de estados da sessão; recebe a
+  conexão WebRTC por injeção (`criarPar`) para ser testada no Node com um par falso.
 
 Notas para as próximas etapas:
 - `@nut-tree-fork/nut-js` sem atualização desde 03/2025; `@jitsi/robotjs` ativo (07/2026).
@@ -130,3 +142,6 @@ Notas para as próximas etapas:
 - Ao testar o app pelo Claude Code: a variável `ELECTRON_RUN_AS_NODE=1` (herdada do VS Code)
   precisa ser removida, e processos Electron em segundo plano morrem quando outra tarefa
   de fundo termina, então orquestrar servidor + app num único script.
+- Teste com duas instâncias: `npm run build -w @acesso-remoto/app` e abrir
+  `node_modules/electron/dist/electron.exe .` (em app/) duas vezes, cada uma com
+  `--user-data-dir` próprio e `--remote-debugging-port` para conduzir pelo DevTools Protocol.
