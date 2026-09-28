@@ -1,7 +1,8 @@
 // Mensagens trocadas diretamente entre os dois apps pelo DataChannel do
 // WebRTC (sem passar pelo servidor): o ping que mede a latência e os
-// eventos de input (mouse e teclado) que o visualizador envia ao anfitrião.
+// eventos de input (mouse e teclado) e, no acesso não supervisionado, a senha.
 import { z } from 'zod';
+import { SENHA_MAXIMA } from './senha.js';
 
 /** Maior mensagem aceita pelo canal, checada antes do JSON.parse. */
 export const TAMANHO_MAXIMO_MENSAGEM_CANAL = 16 * 1024;
@@ -84,6 +85,14 @@ export const esquemaMensagemCanal = z.discriminatedUnion('tipo', [
   z.object({ tipo: z.literal('ping'), t: z.number().finite() }),
   /** Eco do ping, devolvendo o mesmo "t" para calcular o tempo de ida e volta. */
   z.object({ tipo: z.literal('pong'), t: z.number().finite() }),
+  /**
+   * Visualizador → anfitrião, na sessão aceita por senha: a senha, pela conexão
+   * direta (criptografada), nunca pelo servidor. Limite folgado em unidades
+   * UTF-16; a regra de tamanho de verdade é checada no anfitrião.
+   */
+  z.object({ tipo: z.literal('senha'), senha: z.string().min(1).max(SENHA_MAXIMA * 4) }),
+  /** Anfitrião → visualizador: a senha conferiu; tela e controle liberados. */
+  z.object({ tipo: z.literal('autenticado') }),
   ...esquemasInput,
 ]);
 export type MensagemCanal = z.infer<typeof esquemaMensagemCanal>;

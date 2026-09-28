@@ -4,7 +4,7 @@
 import { PROTOCOL_VERSION } from '@acesso-remoto/shared';
 import { tocarSomPedido } from './alerta';
 import { ConexaoPar } from './par';
-import { ControladorSessao, parceiroControlando, type EstadoSessao } from './sessao';
+import { ControladorSessao, caixaDeAceiteAberta, parceiroControlando, type EstadoSessao } from './sessao';
 import { ClienteSinalizacao, type EstadoSinalizacao } from './sinalizacao';
 import { montarTelaAcesso } from './telas/acesso';
 import { montarTelaInicio } from './telas/inicio';
@@ -15,7 +15,7 @@ let estadoSinalizacao: EstadoSinalizacao = { fase: 'conectando' };
 let estadoSessao: EstadoSessao = { fase: 'livre' };
 
 const telaInicio = montarTelaInicio({
-  aoConectar: (idRemoto) => controlador.conectar(idRemoto),
+  aoConectar: (idRemoto, senha) => controlador.conectar(idRemoto, senha),
 });
 const telaSessao = montarTelaSessao({
   aoEncerrar: () => controlador.encerrar(),
@@ -50,7 +50,8 @@ const controlador = new ControladorSessao({
   enviar: (mensagem) => sinalizacao.enviar(mensagem),
   aoMudarEstado: (estado) => {
     // Pedido novo: traz a janela para frente e toca o aviso.
-    if (estado.fase === 'pedido_recebido' && estadoSessao.fase !== 'pedido_recebido') {
+    // (Pedido com senha é tratado sozinho, sem ninguém para avisar.)
+    if (caixaDeAceiteAberta(estado) && !caixaDeAceiteAberta(estadoSessao)) {
       window.api.chamarAtencao();
       tocarSomPedido();
     }
@@ -66,6 +67,9 @@ const controlador = new ControladorSessao({
   // Anfitrião: só o main executa input; o renderer apenas repassa.
   aoReceberInput: (evento) => window.api.input.executar(evento),
   aoLiberarInput: () => window.api.input.liberar(),
+  // Acesso com senha: quem sabe se há senha e quem confere é o main.
+  senhaDefinida: () => window.api.senha.estado().then((estado) => estado.definida),
+  tentarSenha: (senha) => window.api.senha.tentar(senha),
 });
 
 // Encerrar pelo botão do indicador flutuante.

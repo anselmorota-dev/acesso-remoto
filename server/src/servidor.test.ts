@@ -84,7 +84,7 @@ test('mensagens inválidas recebem erro sem derrubar a conexão', async () => {
 
 test('mensagens que exigem ID são recusadas antes do registro', async () => {
   const cliente = await conectar();
-  cliente.enviar({ tipo: 'conectar', destino: '123456789' });
+  cliente.enviar({ tipo: 'conectar', destino: '123456789', comSenha: false });
   const resposta = await cliente.proxima();
   assert.equal(resposta.tipo === 'erro' && resposta.codigo, 'nao_registrado');
 });

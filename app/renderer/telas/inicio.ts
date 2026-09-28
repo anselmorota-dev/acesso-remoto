@@ -12,8 +12,11 @@ export interface TelaInicio {
 }
 
 export interface OpcoesTelaInicio {
-  /** Chamado quando o usuário pede para acessar outro ID (já validado). */
-  aoConectar: (idRemoto: IdCliente) => void;
+  /**
+   * Chamado quando o usuário pede para acessar outro ID (já validado). Com
+   * senha, é acesso não supervisionado; sem, o outro lado precisa aceitar.
+   */
+  aoConectar: (idRemoto: IdCliente, senha?: string) => void;
 }
 
 export function montarTelaInicio(opcoes: OpcoesTelaInicio): TelaInicio {
@@ -22,6 +25,7 @@ export function montarTelaInicio(opcoes: OpcoesTelaInicio): TelaInicio {
   const status = elemento<HTMLParagraphElement>('#status-conexao');
   const form = elemento<HTMLFormElement>('#form-conectar');
   const campoRemoto = elemento<HTMLInputElement>('#id-remoto');
+  const campoSenha = elemento<HTMLInputElement>('#senha-remota');
   const botaoConectar = elemento<HTMLButtonElement>('#botao-conectar');
   const aviso = elemento<HTMLParagraphElement>('#aviso-conectar');
 
@@ -55,7 +59,10 @@ export function montarTelaInicio(opcoes: OpcoesTelaInicio): TelaInicio {
     evento.preventDefault();
     const digitos = extrairDigitos(campoRemoto.value);
     if (botaoConectar.disabled || !ehIdValido(digitos)) return;
-    opcoes.aoConectar(digitos);
+    const senha = campoSenha.value;
+    // A senha não fica na página depois de usada.
+    campoSenha.value = '';
+    opcoes.aoConectar(digitos, senha || undefined);
   });
 
   botaoCopiar.addEventListener('click', async () => {

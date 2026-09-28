@@ -33,7 +33,7 @@ export function criarGerenciadorSessoes(opcoes: OpcoesSessoes) {
     }
   }
 
-  function conectar(visualizador: ConexaoRegistrada, destino: IdCliente): void {
+  function conectar(visualizador: ConexaoRegistrada, destino: IdCliente, comSenha: boolean): void {
     if (visualizador.vinculo.tipo !== 'livre') {
       enviarErro(visualizador, 'ja_em_sessao', 'Já existe um pedido ou sessão em andamento');
       return;
@@ -61,19 +61,26 @@ export function criarGerenciadorSessoes(opcoes: OpcoesSessoes) {
     }, prazoRespostaMs);
 
     visualizador.vinculo = { tipo: 'pedindo', anfitriao, prazo };
-    anfitriao.vinculo = { tipo: 'pedido_recebido', visualizador };
-    enviar(anfitriao, { tipo: 'pedido_conexao', origem: visualizador.id, prazoMs: prazoRespostaMs });
-    log(`[server] pedido ${visualizador.id} → ${destino}`);
+    anfitriao.vinculo = { tipo: 'pedido_recebido', visualizador, comSenha };
+    enviar(anfitriao, { tipo: 'pedido_conexao', origem: visualizador.id, prazoMs: prazoRespostaMs, comSenha });
+    log(`[server] pedido ${visualizador.id} → ${destino}${comSenha ? ' (com senha)' : ''}`);
   }
 
-  function responder(anfitriao: ConexaoRegistrada, origem: IdCliente, aceito: boolean): void {
+  function responder(anfitriao: ConexaoRegistrada, origem: IdCliente, aceito: boolean, porSenha: boolean): void {
     const vinculo = anfitriao.vinculo;
     // Só vale responder ao pedido que está de fato pendente para este anfitrião.
     if (vinculo.tipo !== 'pedido_recebido' || vinculo.visualizador.id !== origem) {
       enviarErro(anfitriao, 'pedido_inexistente', `Não há pedido pendente de ${origem}`);
       return;
     }
+    // "Aceito por senha" só existe para quem veio com senha: senão o anfitrião
+    // pularia o aceite com o visualizador achando que passou por uma senha.
+    if (aceito && porSenha && !vinculo.comSenha) {
+      enviarErro(anfitriao, 'mensagem_invalida', 'Aceite por senha só vale para pedido com senha');
+      return;
+    }
     const visualizador = vinculo.visualizador;
+    const sessaoPorSenha = aceito && porSenha;
     liberar(visualizador, anfitriao);
 
     if (!aceito) {
@@ -84,9 +91,9 @@ export function criarGerenciadorSessoes(opcoes: OpcoesSessoes) {
 
     visualizador.vinculo = { tipo: 'em_sessao', parceiro: anfitriao, papel: 'visualizador' };
     anfitriao.vinculo = { tipo: 'em_sessao', parceiro: visualizador, papel: 'anfitriao' };
-    enviar(visualizador, { tipo: 'sessao_iniciada', parceiro: anfitriao.id, papel: 'visualizador' });
-    enviar(anfitriao, { tipo: 'sessao_iniciada', parceiro: origem, papel: 'anfitriao' });
-    log(`[server] sessão iniciada ${origem} → ${anfitriao.id}`);
+    enviar(visualizador, { tipo: 'sessao_iniciada', parceiro: anfitriao.id, papel: 'visualizador', porSenha: sessaoPorSenha });
+    enviar(anfitriao, { tipo: 'sessao_iniciada', parceiro: origem, papel: 'anfitriao', porSenha: sessaoPorSenha });
+    log(`[server] sessão iniciada ${origem} → ${anfitriao.id}${sessaoPorSenha ? ' (por senha)' : ''}`);
   }
 
   function repassarSinal(conexao: Conexao, sinal: Sinal): void {

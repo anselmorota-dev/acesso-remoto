@@ -12,7 +12,7 @@
 import { readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { hash, verify } from '@node-rs/argon2';
 import { normalizarSenha, problemaNaSenha } from '@acesso-remoto/shared';
-import type { ResultadoSenha } from '../preload/api';
+import type { ResultadoSenha, ResultadoTentativaSenha } from '../preload/api';
 
 export interface OpcoesCofre {
   /** Caminho do arquivo onde o hash é guardado. */
@@ -21,7 +21,17 @@ export interface OpcoesCofre {
   emSessao: () => boolean;
   /** Custo do argon2 (os testes usam um menor para rodar rápido). */
   custo?: { memoriaKiB: number; passagens: number };
+  /** Relógio em ms (injetável nos testes do limite de tentativas). */
+  agora?: () => number;
 }
+
+/**
+ * Limite de tentativas de acesso com senha, aqui no anfitrião: depois de
+ * LIMITE erros dentro da JANELA, recusa tudo (até a senha certa) até os erros
+ * mais antigos saírem da janela. Soma-se ao limite no servidor (etapa 3.5).
+ */
+export const LIMITE_ERROS_SENHA = 5;
+export const JANELA_ERROS_SENHA_MS = 10 * 60_000;
 
 /** 64 MiB e 3 passagens: ~0,1–0,3 s por verificação num notebook comum. */
 const CUSTO_PADRAO = { memoriaKiB: 64 * 1024, passagens: 3 };
@@ -34,10 +44,14 @@ interface ConteudoArquivo {
 
 export class CofreSenha {
   private readonly opcoes: OpcoesCofre;
+  private readonly agora: () => number;
   private hashSenha: string | null;
+  /** Instantes das tentativas erradas recentes (para o limite). */
+  private erros: number[] = [];
 
   private constructor(opcoes: OpcoesCofre, hashSenha: string | null) {
     this.opcoes = opcoes;
+    this.agora = opcoes.agora ?? Date.now;
     this.hashSenha = hashSenha;
   }
 
@@ -58,6 +72,24 @@ export class CofreSenha {
     } catch {
       return false;
     }
+  }
+
+  /**
+   * Tentativa de acesso com senha (vinda de outro computador), com limite de
+   * erros. Diferente de confere(), que é usada quando o próprio usuário daqui
+   * altera ou remove a senha.
+   */
+  async tentar(senha: string): Promise<ResultadoTentativaSenha> {
+    if (!this.hashSenha) return 'sem_senha';
+    const agora = this.agora();
+    this.erros = this.erros.filter((instante) => agora - instante < JANELA_ERROS_SENHA_MS);
+    if (this.erros.length >= LIMITE_ERROS_SENHA) return 'bloqueada';
+    if (await this.confere(senha)) {
+      this.erros = [];
+      return 'ok';
+    }
+    this.erros.push(agora);
+    return 'incorreta';
   }
 
   /** Define a senha (ou troca: aí "atual" precisa conferir). */

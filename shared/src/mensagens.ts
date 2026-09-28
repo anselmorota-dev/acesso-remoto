@@ -43,6 +43,10 @@ export const esquemaMotivoFalha = z.enum([
   'captura_indisponivel',
   /** A conexão direta (WebRTC) não pôde ser estabelecida ou caiu. */
   'falha_conexao',
+  /** Acesso com senha: a senha não confere (ou não chegou a tempo). */
+  'senha_incorreta',
+  /** Acesso com senha: muitas tentativas erradas; o anfitrião recusa por um tempo. */
+  'senha_bloqueada',
 ]);
 export type MotivoFalha = z.infer<typeof esquemaMotivoFalha>;
 
@@ -94,9 +98,26 @@ export const esquemaMensagemDoCliente = z.discriminatedUnion('tipo', [
   /** Resposta ao desafio: prova que a instalação tem a chave privada. */
   z.object({ tipo: z.literal('provar'), assinatura: esquemaAssinatura }),
   /** Visualizador pede para acessar o computador com o ID "destino". */
-  z.object({ tipo: z.literal('conectar'), destino: esquemaId }),
+  z.object({
+    tipo: z.literal('conectar'),
+    destino: esquemaId,
+    /**
+     * O visualizador vai provar uma senha (acesso não supervisionado). A senha
+     * em si nunca passa pelo servidor: vai pela conexão direta depois.
+     */
+    comSenha: z.boolean(),
+  }),
   /** Anfitrião aceita ou recusa o pedido vindo de "origem". */
-  z.object({ tipo: z.literal('responder_pedido'), origem: esquemaId, aceito: z.boolean() }),
+  z.object({
+    tipo: z.literal('responder_pedido'),
+    origem: esquemaId,
+    aceito: z.boolean(),
+    /**
+     * Aceito sem ninguém clicar, para conferir a senha pela conexão direta.
+     * Só vale para pedidos "comSenha"; tela e controle ficam travados até a senha conferir.
+     */
+    porSenha: z.boolean(),
+  }),
   /** Sinal WebRTC para o outro lado da sessão. */
   z.object({ tipo: z.literal('sinal'), sinal: esquemaSinal }),
   /** Cancela o pedido em andamento ou encerra a sessão atual (com o motivo, se foi falha). */
@@ -171,13 +192,21 @@ export const esquemaMensagemDoServidor = z.discriminatedUnion('tipo', [
     tipo: z.literal('pedido_conexao'),
     origem: esquemaId,
     prazoMs: z.number().int().positive().max(5 * 60_000),
+    /** O visualizador tem uma senha para provar (acesso não supervisionado). */
+    comSenha: z.boolean(),
   }),
   /** Para o anfitrião: quem pediu desistiu (cancelou, caiu ou o prazo acabou). */
   z.object({ tipo: z.literal('pedido_cancelado'), origem: esquemaId }),
   /** Para o visualizador: o pedido não foi aceito. */
   z.object({ tipo: z.literal('pedido_recusado'), destino: esquemaId, motivo: esquemaMotivoRecusa }),
   /** Para os dois lados: pedido aceito, podem começar a negociar o WebRTC. */
-  z.object({ tipo: z.literal('sessao_iniciada'), parceiro: esquemaId, papel: esquemaPapel }),
+  z.object({
+    tipo: z.literal('sessao_iniciada'),
+    parceiro: esquemaId,
+    papel: esquemaPapel,
+    /** Aceita por senha: tela e controle só depois de a senha conferir pela conexão direta. */
+    porSenha: z.boolean(),
+  }),
   /** Sinal WebRTC vindo do outro lado da sessão. */
   z.object({ tipo: z.literal('sinal'), sinal: esquemaSinal }),
   /** A sessão terminou pelo outro lado. */

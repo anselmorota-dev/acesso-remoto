@@ -5,7 +5,7 @@ import { mkdtempSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { CofreSenha } from './cofre-senha';
+import { CofreSenha, JANELA_ERROS_SENHA_MS, LIMITE_ERROS_SENHA } from './cofre-senha';
 
 const CUSTO_TESTE = { memoriaKiB: 1024, passagens: 1 };
 
@@ -92,6 +92,36 @@ test('arquivo corrompido ou adulterado vale como "sem senha" (acesso desativado)
   assert.equal((await abrir({ arquivo })).cofre.definida, false);
   writeFileSync(arquivo, JSON.stringify({ versao: 1, senha: 'texto-puro-nao-e-hash' }));
   assert.equal((await abrir({ arquivo })).cofre.definida, false);
+});
+
+test('tentar: confere a senha de quem quer acessar', async () => {
+  const { cofre } = await abrir();
+  assert.equal(await cofre.tentar('qualquer coisa'), 'sem_senha');
+  await cofre.definir('senha de acesso', null);
+  assert.equal(await cofre.tentar('senha errada!'), 'incorreta');
+  assert.equal(await cofre.tentar('senha de acesso'), 'ok');
+});
+
+test('tentar: 5 erros em 10 minutos bloqueiam até a janela passar (nem a certa passa)', async () => {
+  let agora = 0;
+  const arquivo = join(mkdtempSync(join(tmpdir(), 'cofre-')), 'seguranca.json');
+  const cofre = await CofreSenha.abrir({ arquivo, emSessao: () => false, custo: CUSTO_TESTE, agora: () => agora });
+  await cofre.definir('senha de acesso', null);
+
+  for (let i = 0; i < LIMITE_ERROS_SENHA; i++) assert.equal(await cofre.tentar(`errada ${i}`), 'incorreta');
+  assert.equal(await cofre.tentar('senha de acesso'), 'bloqueada');
+
+  agora += JANELA_ERROS_SENHA_MS; // os erros "vencem"
+  assert.equal(await cofre.tentar('senha de acesso'), 'ok');
+});
+
+test('tentar: acertar zera a contagem de erros', async () => {
+  const { cofre } = await abrir();
+  await cofre.definir('senha de acesso', null);
+  for (let i = 0; i < LIMITE_ERROS_SENHA - 1; i++) await cofre.tentar(`errada ${i}`);
+  assert.equal(await cofre.tentar('senha de acesso'), 'ok');
+  for (let i = 0; i < LIMITE_ERROS_SENHA - 1; i++) assert.equal(await cofre.tentar(`errada ${i}`), 'incorreta');
+  assert.equal(await cofre.tentar('senha de acesso'), 'ok');
 });
 
 test('a gravação não deixa arquivo temporário para trás', async () => {

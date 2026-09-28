@@ -1,6 +1,6 @@
 // Painel de sessão (topo da janela) e caixa de aceite do anfitrião.
 import { formatarId } from '../id';
-import type { EstadoSessao } from '../sessao';
+import { caixaDeAceiteAberta, type EstadoSessao } from '../sessao';
 import { elemento } from './util';
 
 export interface TelaSessao {
@@ -66,25 +66,40 @@ export function montarTelaSessao(opcoes: OpcoesTelaSessao): TelaSessao {
           break;
         case 'pedindo':
           painel.hidden = false;
-          texto.textContent = `Aguardando ${formatarId(estado.destino)} aceitar o acesso…`;
+          texto.textContent = estado.comSenha
+            ? `Conectando a ${formatarId(estado.destino)} com senha…`
+            : `Aguardando ${formatarId(estado.destino)} aceitar o acesso…`;
           botao.textContent = 'Cancelar';
           break;
         case 'pedido_recebido':
-          painel.hidden = true;
+          // Com a caixa de aceite aberta o painel fica escondido; no pedido com
+          // senha (sem caixa), ele mostra o que está acontecendo.
+          painel.hidden = !estado.verificandoSenha;
+          texto.textContent = `Pedido de acesso com senha de ${formatarId(estado.origem)}…`;
+          botao.textContent = 'Recusar';
           break;
         case 'em_sessao': {
           painel.hidden = false;
+          botao.textContent = 'Encerrar';
+          if (!estado.liberada) {
+            // Sessão por senha, antes de a senha conferir: nada de tela nem controle.
+            texto.textContent =
+              estado.papel === 'anfitriao'
+                ? `Pedido de acesso com senha de ${formatarId(estado.parceiro)}: conferindo a senha…`
+                : `Conferindo a senha com ${formatarId(estado.parceiro)}…`;
+            break;
+          }
           const quem = estado.papel === 'anfitriao' ? 'acessado por' : 'acessando';
           const latencia = estado.latenciaMs === null ? '' : ` · latência ${estado.latenciaMs} ms`;
           texto.textContent = `Sessão ativa: ${quem} ${formatarId(estado.parceiro)} — ${TEXTO_CONEXAO[estado.conexao]}${latencia}`;
           painel.dataset['conexao'] = estado.conexao;
-          botao.textContent = 'Encerrar';
           break;
         }
       }
 
-      // Caixa de aceite: aberta só enquanto há pedido para responder.
-      if (estado.fase === 'pedido_recebido') {
+      // Caixa de aceite: aberta só enquanto há pedido para alguém responder
+      // (o pedido com senha é tratado sozinho, sem caixa).
+      if (estado.fase === 'pedido_recebido' && caixaDeAceiteAberta(estado)) {
         origem.textContent = formatarId(estado.origem);
         aceitar.disabled = recusar.disabled = estado.respondendo;
         mostrarPrazo();

@@ -212,10 +212,10 @@ export async function iniciarServidor(opcoes: OpcoesServidor): Promise<ServidorS
 
     switch (mensagem.tipo) {
       case 'conectar':
-        sessoes.conectar(registrada, mensagem.destino);
+        sessoes.conectar(registrada, mensagem.destino, mensagem.comSenha);
         return;
       case 'responder_pedido':
-        sessoes.responder(registrada, mensagem.origem, mensagem.aceito);
+        sessoes.responder(registrada, mensagem.origem, mensagem.aceito, mensagem.porSenha);
         return;
       case 'sinal':
         sessoes.repassarSinal(registrada, mensagem.sinal);

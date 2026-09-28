@@ -96,7 +96,7 @@ Não tenho pressa: prefiro entender cada parte a avançar rápido.
 ### Fase 3 — Acesso não supervisionado
 - [x] 3.1 Definir senha no anfitrião (hash local)
 - [x] 3.2 ID fixo por instalação (o servidor lembra cada instalação; exige armazenamento persistente)
-- [ ] 3.3 Conectar com senha sem precisar de aceite
+- [x] 3.3 Conectar com senha sem precisar de aceite
 - [ ] 3.4 Iniciar com o sistema e ficar na bandeja
 - [ ] 3.5 Limite de tentativas no servidor
 
@@ -119,8 +119,8 @@ Não tenho pressa: prefiro entender cada parte a avançar rápido.
 ## Estado atual
 Fase 1 concluída. Fase 2: 2.1 a 2.4 concluídas; 2.5 publicada e testada na mesma máquina,
 falta o teste entre duas redes (o usuário fará depois, com outro notebook). Fase 3: 3.1
-e 3.2 concluídas (ID fixo no Neon: a mesma chave manteve o ID em 3 instâncias diferentes do
-servidor no Render, 28/09/2026). Próxima: 3.3 (conectar com senha, sem aceite).
+a 3.3 concluídas (ID fixo no Neon: a mesma chave manteve o ID em 3 instâncias diferentes do
+servidor no Render, 28/09/2026). Próxima: 3.4 (iniciar com o sistema e ficar na bandeja).
 
 Decisões já tomadas:
 - ID fixo por instalação (3.2, protocolo v3): cada instalação tem um par Ed25519
@@ -141,6 +141,18 @@ Decisões já tomadas:
   atraso (~10 s) ou ao fechar: se o app for derrubado nos primeiros segundos da 1ª execução, a
   identidade não decifra depois e vira outra (ID novo). Aceito como risco pequeno; alternativa
   seria guardar a chave sem cifrar (protegida só pela conta do Windows).
+- Acesso com senha (3.3, protocolo v4): campo "Senha (opcional)" ao conectar. `conectar
+  {comSenha}` → `pedido_conexao {comSenha}`; anfitrião com senha definida responde sozinho
+  `responder_pedido {porSenha: true}` (sem caixa, som nem foco); sem senha definida, vira pedido
+  comum com caixa. O servidor recusa `porSenha` em pedido sem senha. `sessao_iniciada {porSenha}`.
+  Sessão por senha começa travada (`em_sessao.liberada = false`): o vídeo vai reservado na
+  oferta (`addTransceiver` sendonly) e só é capturado em `liberarTela()` (`replaceTrack`, sem
+  renegociar); input ignorado e indicador escondido até liberar. A senha vai pelo DataChannel
+  (`senha`), nunca pelo servidor; uma tentativa por sessão; prazo de 15 s. O main confere
+  (`CofreSenha.tentar`, IPC `senha:tentar`) com limite local de 5 erros em 10 min (`bloqueada`).
+  Certo → `autenticado` pelo canal + tela + controle; errado → `encerrar {senha_incorreta |
+  senha_bloqueada}`. A senha do visualizador só fica em memória até a sessão começar.
+  Custo aceito: quem sabe o ID consegue montar a conexão direta (e ver o IP) antes da senha.
 - Instância única por pasta de dados (`requestSingleInstanceLock`): duas cópias com a mesma
   identidade se derrubariam; abrir de novo foca a janela existente.
 - Senha (3.1): `@node-rs/argon2` (sem script de instalação; o `crypto.argon2` do Node não funciona

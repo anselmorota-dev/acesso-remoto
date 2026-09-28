@@ -9,7 +9,7 @@ import { iniciarServidor, type ServidorSinalizacao } from '@acesso-remoto/server
 import type { EventoInput, Sinal } from '@acesso-remoto/shared';
 import { ErroCaptura } from './captura';
 import type { OpcoesPar, Par } from './par';
-import { ControladorSessao, parceiroControlando, type EstadoSessao } from './sessao';
+import { ControladorSessao, caixaDeAceiteAberta, parceiroControlando, type EstadoSessao } from './sessao';
 import { ClienteSinalizacao } from './sinalizacao';
 
 /** Quando true, o próximo anfitrião falso falha ao capturar a tela. */
@@ -19,14 +19,20 @@ let simularFalhaCaptura = false;
 class ParFalso implements Par {
   readonly sinaisRecebidos: Sinal[] = [];
   readonly inputsEnviados: EventoInput[] = [];
+  readonly senhasEnviadas: string[] = [];
   iniciado = false;
+  telaLiberada = false;
+  autenticacaoConfirmada = false;
   fechado = false;
   constructor(readonly opcoes: OpcoesPar) {}
   async iniciar() {
     this.iniciado = true;
-    if (this.opcoes.papel === 'anfitriao' && simularFalhaCaptura) throw new ErroCaptura('sem permissão');
     // Como o real: o anfitrião começa enviando a oferta.
     if (this.opcoes.papel === 'anfitriao') this.opcoes.enviarSinal({ tipo: 'oferta', sdp: 'oferta-falsa' });
+  }
+  async liberarTela() {
+    if (simularFalhaCaptura) throw new ErroCaptura('sem permissão');
+    this.telaLiberada = true;
   }
   async receberSinal(sinal: Sinal) {
     this.sinaisRecebidos.push(sinal);
@@ -35,9 +41,23 @@ class ParFalso implements Par {
   enviarInput(evento: EventoInput) {
     this.inputsEnviados.push(evento);
   }
+  enviarSenha(senha: string) {
+    this.senhasEnviadas.push(senha);
+  }
+  confirmarAutenticacao() {
+    this.autenticacaoConfirmada = true;
+  }
   fechar() {
     this.fechado = true;
   }
+}
+
+/** Como o anfitrião falso responde à senha (no app, quem confere é o main). */
+interface OpcoesApp {
+  senhaDefinida?: boolean;
+  senhaCerta?: string;
+  bloqueado?: boolean;
+  prazoSenhaMs?: number;
 }
 
 let servidor: ServidorSinalizacao;
@@ -54,7 +74,7 @@ afterEach(async () => {
 });
 
 /** Um "app" completo, ligado como no main.ts, esperando ficar online. */
-async function criarApp() {
+async function criarApp(opcoesApp: OpcoesApp = {}) {
   const estados: EstadoSessao[] = [];
   const pares: ParFalso[] = [];
   const videos: Array<MediaStream | null> = [];
@@ -86,6 +106,12 @@ async function criarApp() {
     aoMudarVideo: (video) => videos.push(video),
     aoReceberInput: (evento) => inputs.push(evento),
     aoLiberarInput: () => liberacoes++,
+    senhaDefinida: async () => opcoesApp.senhaDefinida ?? false,
+    tentarSenha: async (senha) => {
+      if (opcoesApp.bloqueado) return 'bloqueada';
+      return senha === opcoesApp.senhaCerta ? 'ok' : 'incorreta';
+    },
+    prazoSenhaMs: opcoesApp.prazoSenhaMs,
   });
   sinalizacao.iniciar();
   limpezas.push(() => sinalizacao.parar());
@@ -308,4 +334,102 @@ test('fim da sessão solta os botões no anfitrião e ignora input atrasado', as
   // Um evento que chegue depois do fim (conexão antiga) não é executado.
   parAntigo?.opcoes.aoReceberInput?.(clique);
   assert.deepEqual(anfitriao.inputs, []);
+});
+
+// ---------------------------------------------------------------------------
+// Acesso com senha (não supervisionado)
+// ---------------------------------------------------------------------------
+
+const SENHA = 'frase secreta 123';
+
+/** Visualizador conecta com senha num anfitrião com as opções dadas; espera os dois em sessão. */
+async function sessaoComSenha(opcoesAnfitriao: OpcoesApp, senha = SENHA) {
+  const visualizador = await criarApp();
+  const anfitriao = await criarApp(opcoesAnfitriao);
+  visualizador.controlador.conectar(anfitriao.id(), senha);
+  await aguardar(() => fase(visualizador) === 'em_sessao' && fase(anfitriao) === 'em_sessao');
+  const parV = visualizador.pares[0];
+  const parA = anfitriao.pares[0];
+  assert.ok(parV && parA);
+  return { visualizador, anfitriao, parV, parA };
+}
+
+const liberada = (app: App) => {
+  const estado = app.controlador.estado;
+  return estado.fase === 'em_sessao' && estado.liberada;
+};
+
+test('com senha certa: o anfitrião aceita sozinho, e tela/controle só depois da senha', async () => {
+  const { visualizador, anfitriao, parV, parA } = await sessaoComSenha({ senhaDefinida: true, senhaCerta: SENHA });
+
+  // Nenhuma caixa de aceite apareceu no anfitrião (o pedido ficou "verificando").
+  assert.ok(anfitriao.estados.some((e) => e.fase === 'pedido_recebido'));
+  assert.ok(!anfitriao.estados.some(caixaDeAceiteAberta));
+
+  // Conectados, mas ainda travados: sem tela, sem input, sem "alguém controlando".
+  assert.equal(liberada(anfitriao), false);
+  assert.equal(parA.telaLiberada, false);
+  assert.deepEqual(parV.senhasEnviadas, [SENHA]);
+  parA.opcoes.aoReceberInput?.(clique);
+  assert.deepEqual(anfitriao.inputs, []);
+  assert.equal(parceiroControlando(anfitriao.controlador.estado), null);
+  visualizador.controlador.enviarInput(clique);
+  assert.deepEqual(parV.inputsEnviados, []);
+
+  // A senha chega ao anfitrião pelo canal direto e confere.
+  parA.opcoes.aoReceberSenha?.(SENHA);
+  await aguardar(() => liberada(anfitriao));
+  assert.ok(parA.telaLiberada && parA.autenticacaoConfirmada);
+  assert.equal(parceiroControlando(anfitriao.controlador.estado), visualizador.id());
+  parA.opcoes.aoReceberInput?.(clique);
+  assert.deepEqual(anfitriao.inputs, [clique]);
+
+  // O visualizador recebe a confirmação e passa a controlar.
+  parV.opcoes.aoAutenticado?.();
+  assert.equal(liberada(visualizador), true);
+  visualizador.controlador.enviarInput(clique);
+  assert.deepEqual(parV.inputsEnviados, [clique]);
+});
+
+test('senha errada encerra a sessão dos dois lados, avisando cada um', async () => {
+  const { visualizador, anfitriao, parA } = await sessaoComSenha({ senhaDefinida: true, senhaCerta: SENHA }, 'senha errada 999');
+  parA.opcoes.aoReceberSenha?.('senha errada 999');
+  await aguardar(() => fase(anfitriao) === 'livre' && fase(visualizador) === 'livre');
+  assert.equal(aviso(visualizador), 'Senha incorreta.');
+  assert.equal(aviso(anfitriao), 'Uma tentativa de acesso com senha errada foi recusada.');
+  assert.equal(parA.telaLiberada, false);
+});
+
+test('muitas tentativas: o anfitrião recusa com "bloqueada"', async () => {
+  const { visualizador, anfitriao, parA } = await sessaoComSenha({ senhaDefinida: true, senhaCerta: SENHA, bloqueado: true });
+  parA.opcoes.aoReceberSenha?.(SENHA); // nem a certa passa enquanto estiver bloqueado
+  await aguardar(() => fase(visualizador) === 'livre');
+  assert.equal(aviso(visualizador), 'Muitas tentativas com senha errada. Tente de novo mais tarde.');
+  assert.equal(parA.telaLiberada, false);
+  assert.equal(fase(anfitriao), 'livre');
+});
+
+test('senha que não chega a tempo encerra a sessão', async () => {
+  const { visualizador, anfitriao } = await sessaoComSenha({ senhaDefinida: true, senhaCerta: SENHA, prazoSenhaMs: 100 });
+  // Ninguém entrega a senha ao anfitrião.
+  await aguardar(() => fase(anfitriao) === 'livre' && fase(visualizador) === 'livre');
+  assert.equal(aviso(visualizador), 'Senha incorreta.');
+});
+
+test('anfitrião sem senha definida: o pedido com senha vira um pedido comum (caixa de aceite)', async () => {
+  const visualizador = await criarApp();
+  const anfitriao = await criarApp({ senhaDefinida: false });
+  visualizador.controlador.conectar(anfitriao.id(), SENHA);
+  await aguardar(() => caixaDeAceiteAberta(anfitriao.controlador.estado));
+  anfitriao.controlador.responderPedido(true);
+  await aguardar(() => liberada(anfitriao) && liberada(visualizador));
+  // Sessão comum: nenhuma senha é enviada.
+  assert.deepEqual(visualizador.pares[0]?.senhasEnviadas, []);
+  assert.equal(anfitriao.pares[0]?.telaLiberada, true);
+});
+
+test('sem senha, a sessão comum já começa liberada e a tela é capturada logo', async () => {
+  const { anfitriao, visualizador } = await emSessao();
+  assert.ok(liberada(anfitriao) && liberada(visualizador));
+  await aguardar(() => anfitriao.pares[0]?.telaLiberada === true);
 });

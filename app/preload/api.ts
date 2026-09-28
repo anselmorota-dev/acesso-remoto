@@ -17,6 +17,8 @@ export const CANAL_PEDIDO_ENCERRAR = 'sessao:pedido-encerrar';
 export const CANAL_SENHA_ESTADO = 'senha:estado';
 export const CANAL_SENHA_DEFINIR = 'senha:definir';
 export const CANAL_SENHA_REMOVER = 'senha:remover';
+/** Confere a senha de quem quer acessar este computador (com limite de tentativas). */
+export const CANAL_SENHA_TENTAR = 'senha:tentar';
 
 /** Canais IPC renderer ⇄ main (com resposta) da identidade da instalação (ID fixo). */
 export const CANAL_IDENTIDADE_CHAVE = 'identidade:chave-publica';
@@ -24,6 +26,8 @@ export const CANAL_IDENTIDADE_ASSINAR = 'identidade:assinar';
 
 export type ErroSenha =ProblemaSenha | 'senha_atual_incorreta' | 'sessao_ativa';
 export type ResultadoSenha = { ok: true } | { ok: false; erro: ErroSenha };
+/** Resultado de uma tentativa de acesso com senha. */
+export type ResultadoTentativaSenha = 'ok' | 'incorreta' | 'bloqueada' | 'sem_senha';
 
 export interface ApiDoPreload {
   /** Versões dos componentes, exibidas na tela para conferência. */
@@ -65,5 +69,7 @@ export interface ApiDoPreload {
     /** Define ou troca a senha; para trocar, "atual" precisa conferir. */
     definir(nova: string, atual: string | null): Promise<ResultadoSenha>;
     remover(atual: string): Promise<ResultadoSenha>;
+    /** Anfitrião: confere a senha recebida de quem quer acessar (acesso não supervisionado). */
+    tentar(senha: string): Promise<ResultadoTentativaSenha>;
   };
 }

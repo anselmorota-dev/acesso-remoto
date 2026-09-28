@@ -14,6 +14,7 @@ import {
   CANAL_SENHA_DEFINIR,
   CANAL_SENHA_ESTADO,
   CANAL_SENHA_REMOVER,
+  CANAL_SENHA_TENTAR,
   type ApiDoPreload,
 } from './api';
 
@@ -43,6 +44,7 @@ const api: ApiDoPreload = {
     estado: () => ipcRenderer.invoke(CANAL_SENHA_ESTADO),
     definir: (nova, atual) => ipcRenderer.invoke(CANAL_SENHA_DEFINIR, nova, atual),
     remover: (atual) => ipcRenderer.invoke(CANAL_SENHA_REMOVER, atual),
+    tentar: (senha) => ipcRenderer.invoke(CANAL_SENHA_TENTAR, senha),
   },
 };
 

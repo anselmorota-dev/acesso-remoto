@@ -2,7 +2,7 @@
 // cofre (cofre-senha.ts), que guarda o hash na pasta de dados do app.
 import { join } from 'node:path';
 import { app, ipcMain, type IpcMainInvokeEvent } from 'electron';
-import { CANAL_SENHA_DEFINIR, CANAL_SENHA_ESTADO, CANAL_SENHA_REMOVER } from '../preload/api';
+import { CANAL_SENHA_DEFINIR, CANAL_SENHA_ESTADO, CANAL_SENHA_REMOVER, CANAL_SENHA_TENTAR } from '../preload/api';
 import { CofreSenha } from './cofre-senha';
 import { ehJanelaDoIndicador, sessaoComoAnfitriao } from './indicador';
 import { janelaDoQuadroPrincipal } from './quadros';
@@ -38,5 +38,13 @@ export function configurarSenha(): void {
   ipcMain.handle(CANAL_SENHA_REMOVER, async (evento, atual: unknown) => {
     exigirJanelaPrincipal(evento);
     return (await cofre).remover(texto(atual));
+  });
+
+  // Senha recebida pela conexão direta de quem quer acessar este computador.
+  ipcMain.handle(CANAL_SENHA_TENTAR, async (evento, senha: unknown) => {
+    exigirJanelaPrincipal(evento);
+    const resultado = await (await cofre).tentar(texto(senha));
+    if (resultado !== 'ok') console.warn(`[main] tentativa de acesso com senha recusada (${resultado})`);
+    return resultado;
   });
 }

@@ -12,7 +12,7 @@ export type Vinculo =
   /** Visualizador aguardando o anfitrião responder. */
   | { tipo: 'pedindo'; anfitriao: Conexao; prazo: ReturnType<typeof setTimeout> }
   /** Anfitrião com um pedido para responder. */
-  | { tipo: 'pedido_recebido'; visualizador: Conexao }
+  | { tipo: 'pedido_recebido'; visualizador: Conexao; comSenha: boolean }
   | { tipo: 'em_sessao'; parceiro: Conexao; papel: Papel };
 
 export interface Conexao {

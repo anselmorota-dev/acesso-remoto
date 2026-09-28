@@ -28,9 +28,9 @@ const ice: Sinal = {
 };
 
 /** Visualizador pede, anfitrião recebe o pedido (com o prazo configurado no servidor). */
-async function pedir(visualizador: Registrado, anfitriao: Registrado, prazoMs = 30_000): Promise<void> {
-  visualizador.enviar({ tipo: 'conectar', destino: anfitriao.id });
-  assert.deepEqual(await anfitriao.proxima(), { tipo: 'pedido_conexao', origem: visualizador.id, prazoMs });
+async function pedir(visualizador: Registrado, anfitriao: Registrado, prazoMs = 30_000, comSenha = false): Promise<void> {
+  visualizador.enviar({ tipo: 'conectar', destino: anfitriao.id, comSenha });
+  assert.deepEqual(await anfitriao.proxima(), { tipo: 'pedido_conexao', origem: visualizador.id, prazoMs, comSenha });
 }
 
 /** Leva os dois até uma sessão iniciada. */
@@ -38,16 +38,18 @@ async function emSessao(): Promise<{ visualizador: Registrado; anfitriao: Regist
   const visualizador = await registrado();
   const anfitriao = await registrado();
   await pedir(visualizador, anfitriao);
-  anfitriao.enviar({ tipo: 'responder_pedido', origem: visualizador.id, aceito: true });
+  anfitriao.enviar({ tipo: 'responder_pedido', origem: visualizador.id, aceito: true, porSenha: false });
   assert.deepEqual(await visualizador.proxima(), {
     tipo: 'sessao_iniciada',
     parceiro: anfitriao.id,
     papel: 'visualizador',
+    porSenha: false,
   });
   assert.deepEqual(await anfitriao.proxima(), {
     tipo: 'sessao_iniciada',
     parceiro: visualizador.id,
     papel: 'anfitriao',
+    porSenha: false,
   });
   return { visualizador, anfitriao };
 }
@@ -71,7 +73,7 @@ test('pedido recusado avisa o visualizador e não cria sessão', async () => {
   const anfitriao = await registrado();
   await pedir(visualizador, anfitriao);
 
-  anfitriao.enviar({ tipo: 'responder_pedido', origem: visualizador.id, aceito: false });
+  anfitriao.enviar({ tipo: 'responder_pedido', origem: visualizador.id, aceito: false, porSenha: false });
   assert.deepEqual(await visualizador.proxima(), {
     tipo: 'pedido_recusado',
     destino: anfitriao.id,
@@ -96,7 +98,7 @@ test('sinal fora de sessão é recusado e não chega a ninguém', async () => {
 
 test('pedir para um ID offline é recusado na hora', async () => {
   const visualizador = await registrado();
-  visualizador.enviar({ tipo: 'conectar', destino: '123456789' });
+  visualizador.enviar({ tipo: 'conectar', destino: '123456789', comSenha: false });
   assert.deepEqual(await visualizador.proxima(), {
     tipo: 'pedido_recusado',
     destino: '123456789',
@@ -106,7 +108,7 @@ test('pedir para um ID offline é recusado na hora', async () => {
 
 test('não é possível pedir conexão para o próprio ID', async () => {
   const cliente = await registrado();
-  cliente.enviar({ tipo: 'conectar', destino: cliente.id });
+  cliente.enviar({ tipo: 'conectar', destino: cliente.id, comSenha: false });
   const erro = await cliente.proxima();
   assert.equal(erro.tipo === 'erro' && erro.codigo, 'destino_invalido');
 });
@@ -114,7 +116,7 @@ test('não é possível pedir conexão para o próprio ID', async () => {
 test('anfitrião ocupado recusa novos pedidos', async () => {
   const { anfitriao } = await emSessao();
   const outro = await registrado();
-  outro.enviar({ tipo: 'conectar', destino: anfitriao.id });
+  outro.enviar({ tipo: 'conectar', destino: anfitriao.id, comSenha: false });
   assert.deepEqual(await outro.proxima(), {
     tipo: 'pedido_recusado',
     destino: anfitriao.id,
@@ -128,7 +130,7 @@ test('anfitrião com pedido pendente também conta como ocupado', async () => {
   const anfitriao = await registrado();
   await pedir(primeiro, anfitriao);
   const segundo = await registrado();
-  segundo.enviar({ tipo: 'conectar', destino: anfitriao.id });
+  segundo.enviar({ tipo: 'conectar', destino: anfitriao.id, comSenha: false });
   const resposta = await segundo.proxima();
   assert.equal(resposta.tipo === 'pedido_recusado' && resposta.motivo, 'ocupado');
 });
@@ -138,7 +140,7 @@ test('visualizador não pode abrir dois pedidos ao mesmo tempo', async () => {
   const anfitriao = await registrado();
   await pedir(visualizador, anfitriao);
   const outro = await registrado();
-  visualizador.enviar({ tipo: 'conectar', destino: outro.id });
+  visualizador.enviar({ tipo: 'conectar', destino: outro.id, comSenha: false });
   const erro = await visualizador.proxima();
   assert.equal(erro.tipo === 'erro' && erro.codigo, 'ja_em_sessao');
   await outro.nadaRecebidoEm();
@@ -147,7 +149,7 @@ test('visualizador não pode abrir dois pedidos ao mesmo tempo', async () => {
 test('responder a um pedido inexistente é recusado', async () => {
   const anfitriao = await registrado();
   const qualquer = await registrado();
-  anfitriao.enviar({ tipo: 'responder_pedido', origem: qualquer.id, aceito: true });
+  anfitriao.enviar({ tipo: 'responder_pedido', origem: qualquer.id, aceito: true, porSenha: false });
   const erro = await anfitriao.proxima();
   assert.equal(erro.tipo === 'erro' && erro.codigo, 'pedido_inexistente');
   await qualquer.nadaRecebidoEm();
@@ -168,7 +170,7 @@ test('pedido expira se o anfitrião não responder a tempo', async () => {
   assert.deepEqual(await anfitriao.proxima(), { tipo: 'pedido_cancelado', origem: visualizador.id });
 
   // Aceitar depois do prazo não vale mais.
-  anfitriao.enviar({ tipo: 'responder_pedido', origem: visualizador.id, aceito: true });
+  anfitriao.enviar({ tipo: 'responder_pedido', origem: visualizador.id, aceito: true, porSenha: false });
   const erro = await anfitriao.proxima();
   assert.equal(erro.tipo === 'erro' && erro.codigo, 'pedido_inexistente');
 });
@@ -244,4 +246,51 @@ test('sinais com formato inválido são barrados pelo servidor', async () => {
     assert.equal(erro.tipo === 'erro' && erro.codigo, 'mensagem_invalida');
   }
   await anfitriao.nadaRecebidoEm();
+});
+
+// ---------------------------------------------------------------------------
+// Acesso com senha (a senha em si nunca passa pelo servidor)
+// ---------------------------------------------------------------------------
+
+test('pedido com senha: o anfitrião aceita "por senha" e os dois ficam sabendo', async () => {
+  const visualizador = await registrado();
+  const anfitriao = await registrado();
+  await pedir(visualizador, anfitriao, 30_000, true);
+  anfitriao.enviar({ tipo: 'responder_pedido', origem: visualizador.id, aceito: true, porSenha: true });
+  assert.deepEqual(await visualizador.proxima(), {
+    tipo: 'sessao_iniciada',
+    parceiro: anfitriao.id,
+    papel: 'visualizador',
+    porSenha: true,
+  });
+  assert.deepEqual(await anfitriao.proxima(), {
+    tipo: 'sessao_iniciada',
+    parceiro: visualizador.id,
+    papel: 'anfitriao',
+    porSenha: true,
+  });
+});
+
+test('pedido com senha também pode ser aceito normalmente (alguém presente no anfitrião)', async () => {
+  const visualizador = await registrado();
+  const anfitriao = await registrado();
+  await pedir(visualizador, anfitriao, 30_000, true);
+  anfitriao.enviar({ tipo: 'responder_pedido', origem: visualizador.id, aceito: true, porSenha: false });
+  const inicio = await visualizador.proxima();
+  assert.ok(inicio.tipo === 'sessao_iniciada' && inicio.porSenha === false);
+});
+
+test('aceitar "por senha" um pedido sem senha é recusado e o pedido continua pendente', async () => {
+  const visualizador = await registrado();
+  const anfitriao = await registrado();
+  await pedir(visualizador, anfitriao); // sem senha
+  anfitriao.enviar({ tipo: 'responder_pedido', origem: visualizador.id, aceito: true, porSenha: true });
+  const erro = await anfitriao.proxima();
+  assert.equal(erro.tipo === 'erro' && erro.codigo, 'mensagem_invalida');
+  await visualizador.nadaRecebidoEm();
+
+  // O aceite normal continua valendo.
+  anfitriao.enviar({ tipo: 'responder_pedido', origem: visualizador.id, aceito: true, porSenha: false });
+  const inicio = await visualizador.proxima();
+  assert.ok(inicio.tipo === 'sessao_iniciada' && inicio.porSenha === false);
 });

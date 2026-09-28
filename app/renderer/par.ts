@@ -33,14 +33,24 @@ export interface OpcoesPar {
   aoReceberVideo?: (video: MediaStream) => void;
   /** Anfitrião: chegou um evento de mouse/teclado do visualizador (já validado). */
   aoReceberInput?: (evento: EventoInput) => void;
+  /** Anfitrião (sessão por senha): o visualizador mandou a senha pelo canal direto. */
+  aoReceberSenha?: (senha: string) => void;
+  /** Visualizador (sessão por senha): o anfitrião confirmou a senha. */
+  aoAutenticado?: () => void;
 }
 
 /** O que o controlador de sessão precisa de uma conexão (permite trocar por um falso nos testes). */
 export interface Par {
   iniciar(): Promise<void>;
   receberSinal(sinal: Sinal): Promise<void>;
+  /** Anfitrião: começa a enviar a tela (logo no aceite, ou depois da senha). */
+  liberarTela(): Promise<void>;
   /** Visualizador: envia um evento de input pelo DataChannel. */
   enviarInput(evento: EventoInput): void;
+  /** Visualizador: envia a senha (sessão por senha). */
+  enviarSenha(senha: string): void;
+  /** Anfitrião: avisa que a senha conferiu. */
+  confirmarAutenticacao(): void;
   fechar(): void;
 }
 
@@ -66,6 +76,10 @@ export class ConexaoPar implements Par {
   private estado: EstadoPar = 'conectando';
   /** Anfitrião: a captura da tela, que precisa ser parada ao encerrar. */
   private telaLocal: MediaStream | null = null;
+  /** Anfitrião: por onde o vídeo sai (a imagem entra em liberarTela). */
+  private enviadorVideo: RTCRtpSender | null = null;
+  /** Visualizador: senha esperando o canal abrir (acesso com senha). */
+  private senhaPendente: string | null = null;
 
   constructor(opcoes: OpcoesPar) {
     this.opcoes = opcoes;
@@ -114,22 +128,41 @@ export class ConexaoPar implements Par {
     }
   }
 
-  /** O anfitrião começa a negociação; o visualizador só espera a oferta. */
+  /**
+   * O anfitrião começa a negociação; o visualizador só espera a oferta.
+   * O vídeo entra na oferta "reservado" (transceptor sem imagem): a captura
+   * só começa em liberarTela(), que no acesso com senha espera a senha conferir.
+   */
   async iniciar(): Promise<void> {
     if (this.opcoes.papel !== 'anfitriao') return;
+    this.enviadorVideo = this.pc.addTransceiver('video', { direction: 'sendonly' }).sender;
+    await this.pc.setLocalDescription(await this.pc.createOffer());
+    this.enviarDescricaoLocal();
+  }
 
+  /** Anfitrião: captura a tela e passa a enviá-la (sem renegociar a conexão). */
+  async liberarTela(): Promise<void> {
+    if (this.opcoes.papel !== 'anfitriao' || this.telaLocal) return;
     const tela = await capturarTela();
     // A sessão pode ter sido encerrada enquanto esperávamos a captura:
     // nesse caso a captura é parada na hora, nunca fica ativa à toa.
-    if (this.estado === 'fechado') {
+    if (this.estado === 'fechado' || !this.enviadorVideo) {
       pararCaptura(tela);
       return;
     }
     this.telaLocal = tela;
-    for (const trilha of tela.getTracks()) this.pc.addTrack(trilha, tela);
+    await this.enviadorVideo.replaceTrack(tela.getVideoTracks()[0] ?? null);
+  }
 
-    await this.pc.setLocalDescription(await this.pc.createOffer());
-    this.enviarDescricaoLocal();
+  /** Visualizador: manda a senha pelo canal direto (espera o canal abrir, se preciso). */
+  enviarSenha(senha: string): void {
+    if (this.canal?.readyState === 'open') this.enviarNoCanal({ tipo: 'senha', senha });
+    else this.senhaPendente = senha;
+  }
+
+  /** Anfitrião: avisa o visualizador que a senha conferiu. */
+  confirmarAutenticacao(): void {
+    this.enviarNoCanal({ tipo: 'autenticado' });
   }
 
   async receberSinal(sinal: Sinal): Promise<void> {
@@ -194,6 +227,11 @@ export class ConexaoPar implements Par {
       const pingar = () => this.enviarNoCanal({ tipo: 'ping', t: performance.now() });
       pingar();
       this.timerPing = setInterval(pingar, INTERVALO_PING_MS);
+      // Senha que o visualizador pediu para enviar antes de o canal abrir.
+      if (this.senhaPendente !== null) {
+        this.enviarNoCanal({ tipo: 'senha', senha: this.senhaPendente });
+        this.senhaPendente = null;
+      }
     });
     canal.addEventListener('close', () => clearInterval(this.timerPing));
     canal.addEventListener('message', (evento) => this.aoMensagemCanal(evento.data));
@@ -217,6 +255,13 @@ export class ConexaoPar implements Par {
         break;
       case 'pong':
         this.opcoes.aoMedirLatencia?.(Math.round(performance.now() - mensagem.t));
+        break;
+      case 'senha':
+        // Só o anfitrião confere senha; o visualizador ignora.
+        if (this.opcoes.papel === 'anfitriao') this.opcoes.aoReceberSenha?.(mensagem.senha);
+        break;
+      case 'autenticado':
+        if (this.opcoes.papel === 'visualizador') this.opcoes.aoAutenticado?.();
         break;
       default:
         // Todo o resto é evento de input (mouse e teclado); o TypeScript

@@ -42,7 +42,13 @@ export function montarTelaVisualizacao(opcoes: OpcoesTelaVisualizacao): TelaVisu
       aguardando.hidden = false;
       if (stream) {
         // autoplay costuma bastar; play() garante caso o navegador segure.
-        video.play().catch((erro: unknown) => console.warn('[visualizacao] play falhou:', erro));
+        video.play().catch((erro: unknown) => {
+          // AbortError: a sessão acabou (ou o vídeo trocou) antes da primeira
+          // imagem chegar; é esperado, não é falha.
+          if (!(erro instanceof DOMException && erro.name === 'AbortError')) {
+            console.warn('[visualizacao] play falhou:', erro);
+          }
+        });
       }
     },
   };
