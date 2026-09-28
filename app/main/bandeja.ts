@@ -28,6 +28,8 @@ export interface OpcoesBandeja {
 
 let bandeja: Tray | null = null;
 let avisoJaMostrado = false;
+/** O que fazer se o usuário clicar no balão atual (null: nada, ex.: o aviso da bandeja). */
+let aoClicarBalao: (() => void) | null = null;
 
 function icone(emSessao: boolean): Electron.NativeImage {
   // 16 px para telas com escala 100%, 32 px para 200% (fica nítido nas duas).
@@ -55,11 +57,24 @@ function inicioAutomaticoLigado(): boolean {
 export function avisarQueContinuaNaBandeja(): void {
   if (!bandeja || avisoJaMostrado || process.platform !== 'win32') return;
   avisoJaMostrado = true;
+  aoClicarBalao = null;
   bandeja.displayBalloon({
     title: 'Acesso Remoto continua rodando',
     content: 'Ele fica aqui na bandeja, pronto para receber acessos. Para fechar de vez, use "Sair" no menu deste ícone.',
     iconType: 'info',
   });
+}
+
+/**
+ * Notificação pelo balão do ícone da bandeja (Windows). Diferente da
+ * Notification do Electron, não exige atalho do app no menu Iniciar (que só
+ * existe com o instalador). false: não há bandeja (use outro meio).
+ */
+export function notificarNaBandeja(titulo: string, texto: string, aoClicar: () => void): boolean {
+  if (!bandeja || process.platform !== 'win32') return false;
+  aoClicarBalao = aoClicar;
+  bandeja.displayBalloon({ title: titulo, content: texto, iconType: 'info', respectQuietTime: true });
+  return true;
 }
 
 export function configurarBandeja(opcoes: OpcoesBandeja): void {
@@ -95,6 +110,11 @@ export function configurarBandeja(opcoes: OpcoesBandeja): void {
   bandeja = new Tray(icone(false));
   // Clique no ícone abre a janela (o menu fica no botão direito).
   bandeja.on('click', opcoes.mostrarJanela);
+  bandeja.on('balloon-click', () => {
+    const tratar = aoClicarBalao;
+    aoClicarBalao = null;
+    tratar?.();
+  });
   atualizar();
 
   // Só a janela principal informa o estado e mexe na opção.

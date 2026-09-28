@@ -19,6 +19,7 @@
         <!-- Aviso passageiro durante a sessão (ex.: texto copiado grande demais). -->
         <p id="nota-sessao" class="nota" hidden></p>
       </div>
+      <button id="botao-chat" type="button" class="secundario" aria-controls="painel-chat" aria-expanded="false" hidden>Chat</button>
       <button id="botao-enviar-arquivos" type="button" class="secundario" hidden>Enviar arquivos</button>
       <button id="botao-sessao" type="button" class="secundario"></button>
     </section>
@@ -30,6 +31,23 @@
         <button id="limpar-arquivos" type="button" class="secundario pequeno" hidden>Limpar concluídos</button>
       </div>
       <ul id="lista-arquivos" class="lista-arquivos"></ul>
+    </section>
+    <!-- Chat da sessão (só em memória; some quando começa outra sessão). -->
+    <section id="painel-chat" class="painel-chat" aria-label="Chat" hidden>
+      <div class="cabecalho-arquivos">
+        <strong>Chat</strong>
+        <button id="fechar-chat" type="button" class="secundario pequeno">Fechar</button>
+      </div>
+      <ol id="mensagens-chat" class="mensagens-chat" aria-live="polite"></ol>
+      <div class="linha-chat">
+        <textarea
+          id="texto-chat"
+          rows="2"
+          maxlength="2000"
+          placeholder="Mensagem (Enter envia, Shift+Enter quebra a linha, Esc volta para a tela remota)"
+        ></textarea>
+        <button id="enviar-chat" type="button">Enviar</button>
+      </div>
     </section>
     <input id="escolher-arquivos" type="file" multiple hidden />
     <div id="soltar-arquivos" class="soltar-arquivos" hidden>Solte para enviar ao outro computador</div>

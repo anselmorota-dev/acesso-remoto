@@ -15,6 +15,8 @@ import {
   CANAL_ARQUIVOS_PEDACO,
   CANAL_BANDEJA_ESTADO,
   CANAL_CHAMAR_ATENCAO,
+  CANAL_CHAT_ABRIR,
+  CANAL_CHAT_NOTIFICAR,
   CANAL_INICIO_AUTOMATICO_DEFINIR,
   CANAL_INICIO_AUTOMATICO_LER,
   CANAL_INICIO_AUTOMATICO_MUDOU,
@@ -69,6 +71,12 @@ const api: ApiDoPreload = {
       ipcRenderer.on(CANAL_ARQUIVOS_FALHOU, (_evento, token: unknown) => {
         if (typeof token === 'string') tratar(token);
       });
+    },
+  },
+  chat: {
+    notificar: (de, texto) => ipcRenderer.send(CANAL_CHAT_NOTIFICAR, de, texto),
+    aoAbrir: (tratar) => {
+      ipcRenderer.on(CANAL_CHAT_ABRIR, () => tratar());
     },
   },
   bandeja: {

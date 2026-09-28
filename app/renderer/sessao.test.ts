@@ -30,7 +30,12 @@ class ParFalso implements Par {
   avisoAoFechar: { motivo?: string } | undefined;
   reiniciosIce = 0;
   readonly areaEnviada: string[] = [];
+  readonly chatEnviado: string[] = [];
   constructor(readonly opcoes: OpcoesPar) {}
+  enviarChat(texto: string) {
+    this.chatEnviado.push(texto);
+    return true;
+  }
   enviarAreaTransferencia(texto: string) {
     if (texto.length > 1000) return false; // "grande demais" no par falso
     this.areaEnviada.push(texto);
@@ -121,6 +126,7 @@ async function criarApp(opcoesApp: OpcoesApp = {}) {
   const areaRecebida: string[] = [];
   const canaisArquivos: Array<CanalArquivos | null> = [];
   const mensagensArquivos: Array<string | ArrayBuffer> = [];
+  const chatRecebido: string[] = [];
   let liberacoes = 0;
   let verificacoesServidor = 0;
   let id = '';
@@ -157,6 +163,7 @@ async function criarApp(opcoesApp: OpcoesApp = {}) {
     aoReceberAreaTransferencia: (texto) => areaRecebida.push(texto),
     aoMudarCanalArquivos: (canal) => canaisArquivos.push(canal),
     aoMensagemArquivos: (dados) => mensagensArquivos.push(dados),
+    aoReceberChat: (texto) => chatRecebido.push(texto),
     senhaDefinida: async () => opcoesApp.senhaDefinida ?? false,
     tentarSenha: async (senha) => {
       if (opcoesApp.bloqueado) return 'bloqueada';
@@ -185,6 +192,7 @@ async function criarApp(opcoesApp: OpcoesApp = {}) {
     areaRecebida,
     canaisArquivos,
     mensagensArquivos,
+    chatRecebido,
     liberacoes: () => liberacoes,
     verificacoesServidor: () => verificacoesServidor,
     id: () => id,
@@ -745,4 +753,40 @@ test('arquivos: na sessão por senha, nada antes de a senha conferir', async () 
   assert.deepEqual(anfitriao.canaisArquivos, [canalA]);
   parV.opcoes.aoAutenticado?.();
   assert.equal(visualizador.canaisArquivos.length, 1);
+});
+
+// ---------------------------------------------------------------------------
+// Chat (4.4)
+// ---------------------------------------------------------------------------
+
+test('chat: os dois lados enviam e recebem com a sessão liberada', async () => {
+  const { visualizador, anfitriao, parV, parA } = await sessaoConectada();
+  assert.equal(visualizador.controlador.enviarChat('oi, tudo bem?'), true);
+  assert.equal(anfitriao.controlador.enviarChat('tudo!'), true);
+  assert.deepEqual(parV.chatEnviado, ['oi, tudo bem?']);
+  assert.deepEqual(parA.chatEnviado, ['tudo!']);
+  parA.opcoes.aoReceberChat?.('oi, tudo bem?');
+  parV.opcoes.aoReceberChat?.('tudo!');
+  assert.deepEqual(anfitriao.chatRecebido, ['oi, tudo bem?']);
+  assert.deepEqual(visualizador.chatRecebido, ['tudo!']);
+});
+
+test('chat: nada fora de sessão, antes da senha conferir nem de conexão antiga', async () => {
+  const sozinho = await criarApp();
+  assert.equal(sozinho.controlador.enviarChat('alguém?'), false);
+
+  const { visualizador, anfitriao, parV, parA } = await sessaoComSenha({ senhaDefinida: true, senhaCerta: SENHA });
+  assert.equal(visualizador.controlador.enviarChat('cedo demais'), false);
+  parA.opcoes.aoReceberChat?.('mensagem antes da senha');
+  assert.deepEqual(anfitriao.chatRecebido, []);
+  assert.deepEqual(parV.chatEnviado, []);
+
+  parA.opcoes.aoReceberSenha?.(SENHA);
+  await aguardar(() => liberada(anfitriao));
+  parA.opcoes.aoReceberChat?.('agora sim');
+  assert.deepEqual(anfitriao.chatRecebido, ['agora sim']);
+
+  anfitriao.controlador.encerrar();
+  parA.opcoes.aoReceberChat?.('atrasada');
+  assert.deepEqual(anfitriao.chatRecebido, ['agora sim']);
 });

@@ -99,6 +99,8 @@ export interface OpcoesControlador {
   aoMudarCanalArquivos?: (canal: CanalArquivos | null) => void;
   /** Mensagem do canal de arquivos (só da conexão atual e com a sessão liberada). */
   aoMensagemArquivos?: (dados: string | ArrayBuffer) => void;
+  /** Mensagem do chat vinda do outro computador (só com a sessão liberada). */
+  aoReceberChat?: (texto: string) => void;
   /** Anfitrião: há senha de acesso não supervisionado definida? */
   senhaDefinida?: () => Promise<boolean>;
   /** Anfitrião: confere a senha recebida (com limite de tentativas). */
@@ -232,6 +234,13 @@ export class ControladorSessao {
     const estado = this.estadoAtual;
     if (estado.fase !== 'em_sessao' || !estado.liberada || !this.par) return 'ignorado';
     return this.par.enviarAreaTransferencia(texto) ? 'enviado' : 'grande_demais';
+  }
+
+  /** Mensagem do chat para o outro computador (só com a sessão liberada). false: não foi. */
+  enviarChat(texto: string): boolean {
+    const estado = this.estadoAtual;
+    if (estado.fase !== 'em_sessao' || !estado.liberada || !this.par) return false;
+    return this.par.enviarChat(texto);
   }
 
   /** Cancela o pedido ou encerra a sessão (qualquer um dos lados). */
@@ -430,6 +439,12 @@ export class ControladorSessao {
         if (this.par === par && estado.fase === 'em_sessao' && estado.liberada) {
           this.opcoes.aoReceberAreaTransferencia?.(texto);
         }
+      },
+      // Chat: só da conexão atual e com a sessão liberada (na sessão por
+      // senha, nada antes de a senha conferir).
+      aoReceberChat: (texto) => {
+        const estado = this.estadoAtual;
+        if (this.par === par && estado.fase === 'em_sessao' && estado.liberada) this.opcoes.aoReceberChat?.(texto);
       },
       aoMudarCanalArquivos: (canal) => {
         if (this.par !== par) return;

@@ -67,6 +67,12 @@ export function rolagemEmPixels(dx: number, dy: number, modo: number, alturaPagi
 // MouseEvent.button → botão do protocolo (os botões extras são ignorados).
 const BOTOES: Partial<Record<number, BotaoMouse>> = { 0: 'esquerdo', 1: 'meio', 2: 'direito' };
 
+/** O alvo é um campo onde se digita (input, textarea, editável)? */
+export function campoDeTexto(alvo: EventTarget | null): boolean {
+  if (typeof HTMLElement === 'undefined' || !(alvo instanceof HTMLElement)) return false;
+  return alvo.isContentEditable || alvo instanceof HTMLTextAreaElement || alvo instanceof HTMLInputElement;
+}
+
 const limitarRolagem = (valor: number) => Math.max(-ROLAGEM_MAXIMA, Math.min(ROLAGEM_MAXIMA, Math.round(valor)));
 
 export interface ControleRemoto {
@@ -163,11 +169,18 @@ export function montarControleRemoto(video: HTMLVideoElement, enviar: (evento: E
   // não ficar com botão ou tecla presos.
   window.addEventListener('blur', soltarTudo);
 
+  // Campo de texto do app (o chat): ao entrar nele, o teclado passa a ser
+  // dele; solta antes o que estivesse apertado no anfitrião.
+  window.addEventListener('focusin', (evento) => {
+    if (ativo && campoDeTexto(evento.target)) enviarTodos(teclado.soltarTudo());
+  });
+
   // Teclado: ouvido na janela inteira, na fase de captura (antes de qualquer
   // outro elemento). preventDefault impede que a tecla aja aqui: Tab não troca
-  // o foco, Espaço não "clica" no botão Encerrar etc.
+  // o foco, Espaço não "clica" no botão Encerrar etc. A exceção é digitar num
+  // campo de texto do app (o chat): aí a tecla fica no campo.
   const aoTeclado = (evento: KeyboardEvent) => {
-    if (!ativo) return;
+    if (!ativo || campoDeTexto(evento.target)) return;
     evento.preventDefault();
     if (evento.isComposing) return; // composição de IME (ex.: japonês): fora do escopo
     const campos = {

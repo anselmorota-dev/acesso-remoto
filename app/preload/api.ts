@@ -29,6 +29,10 @@ export const CANAL_ARQUIVOS_DESCARTAR = 'arquivos:descartar';
 export const CANAL_ARQUIVOS_MOSTRAR = 'arquivos:mostrar';
 /** main → renderer: a gravação de um arquivo falhou (ex.: disco cheio). */
 export const CANAL_ARQUIVOS_FALHOU = 'arquivos:falhou';
+/** renderer → main: chegou mensagem no chat (avisa se a janela não estiver em foco). */
+export const CANAL_CHAT_NOTIFICAR = 'chat:notificar';
+/** main → renderer: clicaram na notificação; abrir o chat. */
+export const CANAL_CHAT_ABRIR = 'chat:abrir';
 
 /** Resultado de terminar de receber um arquivo. */
 export type ConclusaoArquivo = { ok: true; nome: string } | { ok: false; erro: 'tamanho' | 'disco' };
@@ -105,6 +109,13 @@ export interface ApiDoPreload {
     mostrar(token: string): void;
     /** Registra quem trata uma falha de gravação (disco cheio...). */
     aoFalhar(tratar: (token: string) => void): void;
+  };
+  /** Chat: aviso de mensagem nova quando a janela não está em foco. */
+  readonly chat: {
+    /** Chegou mensagem de "de" (o main decide se avisa: só sem foco, e sem exagero). */
+    notificar(de: string, texto: string): void;
+    /** Registra quem abre o chat quando o usuário clica na notificação. */
+    aoAbrir(tratar: () => void): void;
   };
   /** Ícone da bandeja: a janela principal informa o ID e quem está controlando. */
   readonly bandeja: {

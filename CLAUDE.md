@@ -106,7 +106,8 @@ Não tenho pressa: prefiro entender cada parte a avançar rápido.
 - [x] 4.1 Sessões longas: sem limite de tempo, sobrevivem a quedas do servidor e da rede
 - [x] 4.2 Área de transferência compartilhada
 - [x] 4.3 Transferência de arquivos pelo DataChannel (com progresso)
-- [ ] 4.4 Chat simples durante a sessão
+- [x] 4.4 Chat simples durante a sessão
+- **Pronto:** ✅ fase 4 concluída em 28/09/2026
 
 ### Fase 5 — Robustez
 - [ ] 5.1 Múltiplos monitores (escolher qual ver)
@@ -122,11 +123,23 @@ Não tenho pressa: prefiro entender cada parte a avançar rápido.
 ## Estado atual
 Fase 1 concluída. Fase 2: 2.1 a 2.4 concluídas; 2.5 publicada e testada na mesma máquina,
 falta o teste entre duas redes (o usuário fará depois, com outro notebook). Fase 3 concluída
-(28/09/2026). Fase 4: 4.1 (sessões longas), 4.2 (área de transferência) e 4.3 (arquivos,
-protocolo v8) concluídas. Próxima: 4.4 (chat). Pendente do usuário: teste real entre duas
-redes (2.5).
+(28/09/2026). Fase 4 concluída (28/09/2026; servidor com protocolo v9): sessões longas,
+área de transferência, arquivos e chat. Próxima: fase 5 (5.1 múltiplos monitores).
+Pendente do usuário: teste real entre duas redes (2.5).
 
 Decisões já tomadas:
+- Chat (4.4, protocolo v9): mensagem `chat {texto}` no canal "controle" (texto puro, sem
+  espaços nas pontas, até 2000 caracteres; quebras de linha valem). Só com a sessão
+  liberada. Conversa só em memória (`renderer/chat.ts`, ConversaChat: até 200 mensagens,
+  contador de não lidas; recomeça a cada sessão; "total" + "geracao" dizem à tela o que é
+  novo). Tela (`telas/chat.ts`): botão "Chat (n)" no painel da sessão, painel recolhível;
+  Enter envia, Shift+Enter quebra a linha, Esc tira o foco do campo; mensagens por
+  `textContent` (nunca HTML). Teclado: `controle.ts` NÃO captura teclas digitadas em campo
+  de texto do app (`campoDeTexto`) e solta o que estava apertado no anfitrião ao entrar num
+  campo. Aviso com a janela sem foco (escolha do usuário: notificação do Windows, sem roubar
+  o foco): `main/chat.ts` usa o balão da bandeja (`notificarNaBandeja`; a Notification do
+  Electron exige atalho no menu Iniciar, que só existe com o instalador), pisca na barra de
+  tarefas, no máximo um aviso a cada 4 s; clicar abre a janela com o chat (`chat:abrir`).
 - Arquivos (4.3, protocolo v8; escolhas do usuário: os dois lados enviam, recebidos vão para
   Downloads\Acesso Remoto sem perguntar). Segundo DataChannel "arquivos" (criado pelo
   anfitrião antes da oferta; o visualizador só aceita os rótulos "controle" e "arquivos"),
@@ -348,6 +361,9 @@ Notas para as próximas etapas:
 - robotjs: o npm desta máquina bloqueia scripts de instalação (`install: node-gyp-build`); não
   faz falta porque o binário win32-x64 vem pronto. Na 5.4 (instalador) o `.node` precisa ficar
   fora do asar (`asarUnpack`). O mesmo vale para a koffi (4.2).
+- Teste E2E do chat: digitar com `Input.dispatchKeyEvent` (keyDown com `text`); para
+  Enter/Shift+Enter é o evento `char` com `text: '\r'` que quebra a linha num textarea.
+  O balão da bandeja não é verificável por código: o main registra "aviso mostrado".
 - Teste E2E de arquivos: `DOM.setFileInputFiles` no `#escolher-arquivos` simula o botão;
   `Input.dispatchDragEvent` (dragEnter/dragOver/drop com `files`) simula arrastar. Os dois
   apps gravam na MESMA Downloads\Acesso Remoto: nomes diferentes por sentido, e apagar só o

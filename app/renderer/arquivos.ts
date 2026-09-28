@@ -399,9 +399,12 @@ export class GerenciadorArquivos {
       if (entrada.token) this.opcoes.gravador.descartar(entrada.token);
       this.terminar(entrada.item, 'cancelado', 'cancelado pelo outro computador');
     }
-    // ...ou de receber o que estamos mandando.
-    if (this.enviandoAgora?.id === id) {
-      this.terminar(this.enviandoAgora.item, 'cancelado', 'cancelado pelo outro computador');
+    // ...ou de receber o que estamos mandando (inclusive se o "fim" já foi e
+    // cruzou com o cancelamento no caminho: a confirmação não viria nunca).
+    const saida = this.enviandoAgora?.id === id ? this.enviandoAgora : this.aguardandoConfirmacao.get(id);
+    if (saida) {
+      this.aguardandoConfirmacao.delete(id);
+      this.terminar(saida.item, 'cancelado', 'cancelado pelo outro computador');
     }
   }
 

@@ -23,6 +23,9 @@ export const TAMANHO_MAXIMO_MENSAGEM_CANAL = 256 * 1024;
  */
 export const TEXTO_AREA_TRANSFERENCIA_MAXIMO = 200_000;
 
+/** Maior mensagem do chat (em caracteres). */
+export const CHAT_TEXTO_MAXIMO = 2000;
+
 // ---------------------------------------------------------------------------
 // Eventos de input (visualizador → anfitrião)
 // ---------------------------------------------------------------------------
@@ -122,6 +125,11 @@ export const esquemaMensagemCanal = z.discriminatedUnion('tipo', [
    * então chega antes de um Ctrl+V enviado logo depois.
    */
   z.object({ tipo: z.literal('area_transferencia'), texto: z.string().min(1).max(TEXTO_AREA_TRANSFERENCIA_MAXIMO) }),
+  /**
+   * Qualquer lado, com a sessão liberada: uma mensagem do chat. Texto puro
+   * (quem recebe mostra como texto, nunca como HTML); quebras de linha valem.
+   */
+  z.object({ tipo: z.literal('chat'), texto: z.string().trim().min(1).max(CHAT_TEXTO_MAXIMO) }),
   ...esquemasInput,
 ]);
 export type MensagemCanal = z.infer<typeof esquemaMensagemCanal>;

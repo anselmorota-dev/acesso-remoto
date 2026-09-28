@@ -278,6 +278,83 @@ button.pequeno {
   color: var(--erro);
 }
 
+/* Chat ------------------------------------------------------------------- */
+
+.painel-chat {
+  margin: 8px auto 0;
+  max-width: 820px;
+  width: calc(100% - 48px);
+  padding: 8px 16px 12px;
+  border: 1px solid var(--borda);
+  border-radius: 8px;
+  background: var(--cartao);
+}
+
+.painel-chat[hidden] {
+  display: none;
+}
+
+.mensagens-chat {
+  max-height: 24vh;
+  overflow-y: auto;
+  margin: 6px 0 8px;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.mensagem-chat {
+  max-width: 80%;
+  padding: 6px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--borda);
+}
+
+.mensagem-chat p {
+  margin: 0;
+  /* Quebras de linha do texto valem; palavras enormes não estouram a caixa. */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.mensagem-chat.de-eu {
+  align-self: flex-end;
+  background: color-mix(in srgb, var(--destaque) 12%, var(--cartao));
+}
+
+.mensagem-chat.de-outro {
+  align-self: flex-start;
+}
+
+.linha-chat {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.linha-chat textarea {
+  flex: 1;
+  resize: none;
+  padding: 8px 10px;
+  border: 1px solid var(--borda);
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+
+.linha-chat textarea:focus {
+  outline: 2px solid var(--destaque);
+  outline-offset: 1px;
+}
+
+#botao-chat.com-novidade {
+  border-color: var(--destaque);
+  color: var(--destaque);
+}
+
 /* Aviso de "solte aqui" ao arrastar arquivos para a janela. */
 .soltar-arquivos {
   position: fixed;

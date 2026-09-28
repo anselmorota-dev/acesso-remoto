@@ -56,6 +56,8 @@ export interface OpcoesPar {
   aoMudarCanalArquivos?: (canal: CanalArquivos | null) => void;
   /** Mensagem do canal de arquivos (tamanho já limitado; o conteúdo é validado por quem trata). */
   aoMensagemArquivos?: (dados: string | ArrayBuffer) => void;
+  /** Mensagem do chat vinda do outro lado (já validada). */
+  aoReceberChat?: (texto: string) => void;
 }
 
 /** O que o controlador de sessão precisa de uma conexão (permite trocar por um falso nos testes). */
@@ -77,6 +79,8 @@ export interface Par {
    * mensagem. Com o canal ainda fechado, guarda o último e envia ao abrir.
    */
   enviarAreaTransferencia(texto: string): boolean;
+  /** Envia uma mensagem do chat (com o canal ainda fechado, não envia: false). */
+  enviarChat(texto: string): boolean;
   /**
    * Fecha a conexão. Com "aviso", antes manda pelo canal que a sessão acabou
    * (o outro lado fica sabendo mesmo com o servidor fora do ar).
@@ -248,6 +252,12 @@ export class ConexaoPar implements Par {
 
   enviarInput(evento: EventoInput): void {
     this.enviarNoCanal(evento);
+  }
+
+  enviarChat(texto: string): boolean {
+    if (this.canal?.readyState !== 'open') return false;
+    this.enviarNoCanal({ tipo: 'chat', texto });
+    return true;
   }
 
   enviarAreaTransferencia(texto: string): boolean {
@@ -430,6 +440,9 @@ export class ConexaoPar implements Par {
         break;
       case 'area_transferencia':
         this.opcoes.aoReceberAreaTransferencia?.(mensagem.texto);
+        break;
+      case 'chat':
+        this.opcoes.aoReceberChat?.(mensagem.texto);
         break;
       default:
         // Todo o resto é evento de input (mouse e teclado); o TypeScript

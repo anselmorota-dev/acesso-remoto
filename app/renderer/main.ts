@@ -4,11 +4,13 @@
 import { PROTOCOL_VERSION } from '@acesso-remoto/shared';
 import { tocarSomPedido } from './alerta';
 import { GerenciadorArquivos } from './arquivos';
+import { ConversaChat, textoParaEnviar } from './chat';
 import { ConexaoPar } from './par';
 import { ControladorSessao, caixaDeAceiteAberta, parceiroControlando, type EstadoSessao } from './sessao';
 import { ClienteSinalizacao, type EstadoSinalizacao } from './sinalizacao';
 import { montarTelaAcesso } from './telas/acesso';
 import { montarTelaArquivos } from './telas/arquivos';
+import { montarTelaChat } from './telas/chat';
 import { montarTelaInicio } from './telas/inicio';
 import { montarTelaSessao } from './telas/sessao';
 import { montarTelaVisualizacao } from './telas/visualizacao';
@@ -46,6 +48,27 @@ const telaArquivos = montarTelaArquivos({
 });
 window.api.arquivos.aoFalhar((token) => arquivos.falhaNaGravacao(token));
 
+// Chat: só com a sessão liberada; a conversa fica em memória e recomeça a cada sessão.
+const conversa = new ConversaChat();
+const telaChat = montarTelaChat({
+  aoEnviar: (texto) => {
+    const limpo = textoParaEnviar(texto);
+    if (!limpo || !controlador.enviarChat(limpo)) return false;
+    conversa.adicionar('eu', limpo, true);
+    desenharChat();
+    return true;
+  },
+  aoVer: () => {
+    conversa.marcarComoLidas();
+    desenharChat();
+  },
+});
+function desenharChat(): void {
+  telaChat.atualizar(conversa, compartilhaAreaTransferencia(estadoSessao));
+}
+// Clicou na notificação de mensagem nova: abre o chat.
+window.api.chat.aoAbrir(() => telaChat.abrir());
+
 function renderizar(): void {
   telaInicio.atualizar(estadoSinalizacao, estadoSessao);
   telaSessao.atualizar(estadoSessao);
@@ -56,6 +79,7 @@ function renderizar(): void {
     parceiro: parceiroControlando(estadoSessao),
   });
   telaVisualizacao.atualizar(estadoSessao);
+  desenharChat();
 }
 
 const sinalizacao = new ClienteSinalizacao({
@@ -92,6 +116,8 @@ const controlador = new ControladorSessao({
     // Área de transferência compartilhada: só com a sessão liberada. O
     // visualizador manda logo o que já tinha copiado (costuma copiar antes de
     // conectar para colar lá); o anfitrião, só o que copiar dali em diante.
+    // Sessão nova: a conversa do chat recomeça.
+    if (emSessao && estadoSessao.fase !== 'em_sessao') conversa.limpar();
     const compartilhar = compartilhaAreaTransferencia(estado);
     if (compartilhar !== compartilhaAreaTransferencia(estadoSessao)) {
       window.api.areaTransferencia.monitorar(compartilhar, estado.fase === 'em_sessao' && estado.papel === 'visualizador');
@@ -112,6 +138,12 @@ const controlador = new ControladorSessao({
   // Canal de arquivos: só com a sessão liberada (o controlador decide).
   aoMudarCanalArquivos: (canal) => arquivos.definirCanal(canal),
   aoMensagemArquivos: (dados) => arquivos.receber(dados),
+  // Mensagem do chat: entra na conversa e, se a janela não estiver em foco, o main avisa.
+  aoReceberChat: (texto) => {
+    conversa.adicionar('outro', texto, telaChat.visivel);
+    desenharChat();
+    if (estadoSessao.fase === 'em_sessao') window.api.chat.notificar(estadoSessao.parceiro, texto);
+  },
 });
 
 // Texto copiado neste computador durante a sessão: vai para o outro.

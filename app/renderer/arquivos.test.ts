@@ -245,3 +245,16 @@ test('limpar tira só o que já terminou', async () => {
   A.limpar();
   assert.deepEqual(listas.A.map((t) => t.nome), ['lento.bin']);
 });
+
+test('cancelamento de quem recebe que cruza com o "fim" no caminho: quem envia não fica esperando para sempre', async () => {
+  const enviados: Array<string | ArrayBuffer> = [];
+  const visto = { lista: [] as readonly Transferencia[] };
+  const A = new GerenciadorArquivos({ gravador: criarGravador().gravador, aoMudar: (l) => (visto.lista = l) });
+  A.definirCanal({ enviar: (d) => enviados.push(d), fila: () => 0, esperarFila: async () => {} });
+  A.enviar([arquivo('a.txt', Buffer.from('abc'))]);
+  // Tudo saiu, inclusive o "fim": aguardando a confirmação.
+  await aguardar(() => visto.lista[0]?.estado === 'finalizando');
+  // Quem recebe tinha cancelado antes de o "fim" chegar lá.
+  A.receber(JSON.stringify({ tipo: 'arquivo_cancelar', id: 1 }));
+  assert.equal(visto.lista[0]?.estado, 'cancelado');
+});

@@ -8,6 +8,7 @@ import { configurarArquivos } from './arquivos';
 import { configurarAtencao } from './atencao';
 import { ARGUMENTO_OCULTO, avisarQueContinuaNaBandeja, configurarBandeja } from './bandeja';
 import { configurarCaptura } from './captura';
+import { configurarChat } from './chat';
 import { configurarEnergia } from './energia';
 import { configurarIdentidade } from './identidade';
 import { configurarIndicador } from './indicador';
@@ -105,6 +106,7 @@ if (!app.requestSingleInstanceLock()) {
     configurarInput(); // antes de criar a janela: registra a limpeza ao fechá-la
     criarJanelaPrincipal();
     configurarBandeja({ janela: () => janelaPrincipal, mostrarJanela });
+    configurarChat({ mostrarJanela });
 
     // macOS: clicar no ícone do dock mostra a janela (ou recria, se não houver).
     app.on('activate', () => {
