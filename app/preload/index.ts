@@ -4,7 +4,11 @@
 // qualquer dado que o renderer mande junto.
 import { contextBridge, ipcRenderer } from 'electron';
 import {
+  CANAL_BANDEJA_ESTADO,
   CANAL_CHAMAR_ATENCAO,
+  CANAL_INICIO_AUTOMATICO_DEFINIR,
+  CANAL_INICIO_AUTOMATICO_LER,
+  CANAL_INICIO_AUTOMATICO_MUDOU,
   CANAL_EXECUTAR_INPUT,
   CANAL_IDENTIDADE_ASSINAR,
   CANAL_IDENTIDADE_CHAVE,
@@ -34,6 +38,17 @@ const api: ApiDoPreload = {
     // O evento do IPC não é repassado: daria ao renderer acesso ao ipcRenderer.
     aoPedirEncerramento: (tratar) => {
       ipcRenderer.on(CANAL_PEDIDO_ENCERRAR, () => tratar());
+    },
+  },
+  bandeja: {
+    atualizar: (estado) => ipcRenderer.send(CANAL_BANDEJA_ESTADO, estado),
+  },
+  inicioAutomatico: {
+    ligado: () => ipcRenderer.invoke(CANAL_INICIO_AUTOMATICO_LER),
+    definir: (ligar) => ipcRenderer.invoke(CANAL_INICIO_AUTOMATICO_DEFINIR, ligar),
+    // Só o valor (boolean) chega ao renderer, nunca o evento do IPC.
+    aoMudar: (tratar) => {
+      ipcRenderer.on(CANAL_INICIO_AUTOMATICO_MUDOU, (_evento, ligado: unknown) => tratar(ligado === true));
     },
   },
   identidade: {

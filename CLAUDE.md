@@ -97,7 +97,7 @@ Não tenho pressa: prefiro entender cada parte a avançar rápido.
 - [x] 3.1 Definir senha no anfitrião (hash local)
 - [x] 3.2 ID fixo por instalação (o servidor lembra cada instalação; exige armazenamento persistente)
 - [x] 3.3 Conectar com senha sem precisar de aceite
-- [ ] 3.4 Iniciar com o sistema e ficar na bandeja
+- [x] 3.4 Iniciar com o sistema e ficar na bandeja
 - [ ] 3.5 Limite de tentativas no servidor
 
 ### Fase 4 — Recursos de produtividade
@@ -119,8 +119,8 @@ Não tenho pressa: prefiro entender cada parte a avançar rápido.
 ## Estado atual
 Fase 1 concluída. Fase 2: 2.1 a 2.4 concluídas; 2.5 publicada e testada na mesma máquina,
 falta o teste entre duas redes (o usuário fará depois, com outro notebook). Fase 3: 3.1
-a 3.3 concluídas (ID fixo no Neon: a mesma chave manteve o ID em 3 instâncias diferentes do
-servidor no Render, 28/09/2026). Próxima: 3.4 (iniciar com o sistema e ficar na bandeja).
+a 3.4 concluídas (ID fixo no Neon: a mesma chave manteve o ID em 3 instâncias diferentes do
+servidor no Render, 28/09/2026). Próxima: 3.5 (limite de tentativas no servidor).
 
 Decisões já tomadas:
 - ID fixo por instalação (3.2, protocolo v3): cada instalação tem um par Ed25519
@@ -153,6 +153,16 @@ Decisões já tomadas:
   Certo → `autenticado` pelo canal + tela + controle; errado → `encerrar {senha_incorreta |
   senha_bloqueada}`. A senha do visualizador só fica em memória até a sessão começar.
   Custo aceito: quem sabe o ID consegue montar a conexão direta (e ver o IP) antes da senha.
+- Bandeja (3.4, `main/bandeja.ts`): ícone desenhado por código (`icone-bandeja.ts`, 16 e 32 px,
+  cinza; vermelho em sessão), menu montado por `menu-bandeja.ts` (abrir, ID, copiar ID,
+  encerrar sessão, "Iniciar junto com o computador", sair); a janela principal informa ID e
+  parceiro por `bandeja:estado`. O X esconde a janela (aviso "continua rodando" uma vez por
+  execução); só "Sair" encerra (`before-quit` liga `saindo`). "Iniciar junto com o computador":
+  opção no cartão do acesso não supervisionado e no menu, desligada por padrão;
+  `setLoginItemSettings` com `--oculto` (começa só na bandeja). Em desenvolvimento registra o
+  electron.exe + pasta do projeto (entrada "electron.app.Electron"); vale de verdade com o
+  instalador (5.4). Janela principal com `backgroundThrottling: false` (anfitrião escondido
+  transmite normalmente: ~29 fps no teste).
 - Instância única por pasta de dados (`requestSingleInstanceLock`): duas cópias com a mesma
   identidade se derrubariam; abrir de novo foca a janela existente.
 - Senha (3.1): `@node-rs/argon2` (sem script de instalação; o `crypto.argon2` do Node não funciona
@@ -254,6 +264,10 @@ Notas para as próximas etapas:
   PowerShell pode ser o indicador; escolher a janela pelo título (EnumWindows). O indicador é
   um alvo "page" separado no CDP (URL com `indicador.html`).
 - Capturas de tela nos testes E2E mostram a tela real do usuário: não guardar além do necessário.
+- E2E: para simular o X, mandar `WM_CLOSE` à janela (user32 `PostMessage`); `window.close()` na
+  página segue outro caminho. Para simular "Sair", abrir o main com `--inspect` e avaliar
+  `process.mainModule.require('electron').app.quit()` — e desconectar o depurador logo depois,
+  senão o Node espera ("Waiting for the debugger to disconnect") e o processo não termina.
 - Teste E2E do mouse: anfitrião e visualizador na mesma máquina movem o mouse real; posicionar
   as janelas lado a lado (user32 `SetWindowPos`) e clicar só em área vazia da janela do anfitrião.
 - Endurecimento pendente do Electron: `setPermissionRequestHandler`/`setPermissionCheckHandler`

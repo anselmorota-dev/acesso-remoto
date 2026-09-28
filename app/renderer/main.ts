@@ -25,12 +25,17 @@ const telaSessao = montarTelaSessao({
 const telaVisualizacao = montarTelaVisualizacao({
   aoInput: (evento) => controlador.enviarInput(evento),
 });
-const telaAcesso = montarTelaAcesso(window.api.senha);
+const telaAcesso = montarTelaAcesso({ senha: window.api.senha, inicioAutomatico: window.api.inicioAutomatico });
 
 function renderizar(): void {
   telaInicio.atualizar(estadoSinalizacao, estadoSessao);
   telaSessao.atualizar(estadoSessao);
   telaAcesso.atualizar(estadoSessao);
+  // Ícone da bandeja: ID e quem está controlando (o main ignora se nada mudou).
+  window.api.bandeja.atualizar({
+    id: estadoSinalizacao.fase === 'online' ? estadoSinalizacao.id : null,
+    parceiro: parceiroControlando(estadoSessao),
+  });
   telaVisualizacao.atualizar(estadoSessao);
 }
 

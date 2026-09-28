@@ -31,7 +31,14 @@ const MENSAGENS_ERRO: Record<ErroSenha, string> = {
   sessao_ativa: 'Não é possível mudar a senha durante uma sessão.',
 };
 
-export function montarTelaAcesso(api: ApiDoPreload['senha']): TelaAcesso {
+export interface OpcoesTelaAcesso {
+  senha: ApiDoPreload['senha'];
+  inicioAutomatico: ApiDoPreload['inicioAutomatico'];
+}
+
+export function montarTelaAcesso(opcoes: OpcoesTelaAcesso): TelaAcesso {
+  const api = opcoes.senha;
+  montarInicioAutomatico(opcoes.inicioAutomatico);
   const status = elemento<HTMLParagraphElement>('#status-senha');
   const botaoDefinir = elemento<HTMLButtonElement>('#definir-senha');
   const botaoRemover = elemento<HTMLButtonElement>('#remover-senha');
@@ -159,4 +166,27 @@ export function montarTelaAcesso(api: ApiDoPreload['senha']): TelaAcesso {
       desenhar();
     },
   };
+}
+
+/** Caixa "Iniciar junto com o computador": o main grava a opção no sistema. */
+function montarInicioAutomatico(api: ApiDoPreload['inicioAutomatico']): void {
+  const caixa = elemento<HTMLInputElement>('#iniciar-com-sistema');
+  caixa.disabled = true; // até saber o valor atual
+
+  const mostrar = (ligado: boolean) => {
+    caixa.checked = ligado;
+    caixa.disabled = false;
+  };
+  api.ligado().then(mostrar, (falha: unknown) => console.error('[acesso] não foi possível ler o início automático:', falha));
+  // Mudou pelo menu da bandeja: acompanha.
+  api.aoMudar(mostrar);
+
+  caixa.addEventListener('change', () => {
+    const pedido = caixa.checked;
+    caixa.disabled = true;
+    api.definir(pedido).then(mostrar, (falha: unknown) => {
+      console.error('[acesso] não foi possível mudar o início automático:', falha);
+      mostrar(!pedido);
+    });
+  });
 }

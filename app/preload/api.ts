@@ -20,6 +20,14 @@ export const CANAL_SENHA_REMOVER = 'senha:remover';
 /** Confere a senha de quem quer acessar este computador (com limite de tentativas). */
 export const CANAL_SENHA_TENTAR = 'senha:tentar';
 
+/** Canal IPC renderer → main: estado que o ícone da bandeja mostra (ID, quem controla). */
+export const CANAL_BANDEJA_ESTADO = 'bandeja:estado';
+/** Canais IPC do "iniciar junto com o computador". */
+export const CANAL_INICIO_AUTOMATICO_LER = 'sistema:inicio-automatico';
+export const CANAL_INICIO_AUTOMATICO_DEFINIR = 'sistema:definir-inicio-automatico';
+/** main → renderer: a opção mudou (ex.: pelo menu da bandeja). */
+export const CANAL_INICIO_AUTOMATICO_MUDOU = 'sistema:inicio-automatico-mudou';
+
 /** Canais IPC renderer ⇄ main (com resposta) da identidade da instalação (ID fixo). */
 export const CANAL_IDENTIDADE_CHAVE = 'identidade:chave-publica';
 export const CANAL_IDENTIDADE_ASSINAR = 'identidade:assinar';
@@ -51,6 +59,17 @@ export interface ApiDoPreload {
     indicar(parceiro: string | null): void;
     /** Registra quem trata o pedido de encerrar feito pelo indicador. */
     aoPedirEncerramento(tratar: () => void): void;
+  };
+  /** Ícone da bandeja: a janela principal informa o ID e quem está controlando. */
+  readonly bandeja: {
+    atualizar(estado: { id: string | null; parceiro: string | null }): void;
+  };
+  /** "Iniciar junto com o computador" (abre escondido, só na bandeja). */
+  readonly inicioAutomatico: {
+    ligado(): Promise<boolean>;
+    definir(ligar: boolean): Promise<boolean>;
+    /** Avisa quando a opção muda por outro caminho (menu da bandeja). */
+    aoMudar(tratar: (ligado: boolean) => void): void;
   };
   /**
    * Identidade da instalação (ID fixo): o registro no servidor usa a chave

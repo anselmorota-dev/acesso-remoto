@@ -245,6 +245,15 @@ button:disabled {
   display: none;
 }
 
+.opcao {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
 .campo input {
   padding: 8px 10px;
   border: 1px solid var(--borda);
