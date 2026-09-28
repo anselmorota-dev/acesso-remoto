@@ -4,7 +4,7 @@
 import { PROTOCOL_VERSION } from '@acesso-remoto/shared';
 import { tocarSomPedido } from './alerta';
 import { ConexaoPar } from './par';
-import { ControladorSessao, type EstadoSessao } from './sessao';
+import { ControladorSessao, parceiroControlando, type EstadoSessao } from './sessao';
 import { ClienteSinalizacao, type EstadoSinalizacao } from './sinalizacao';
 import { montarTelaInicio } from './telas/inicio';
 import { montarTelaSessao } from './telas/sessao';
@@ -49,6 +49,10 @@ const controlador = new ControladorSessao({
       window.api.chamarAtencao();
       tocarSomPedido();
     }
+    // Indicador flutuante: aparece quando alguém passa a controlar este
+    // computador e some quando a sessão acaba.
+    const controlando = parceiroControlando(estado);
+    if (controlando !== parceiroControlando(estadoSessao)) window.api.sessao.indicar(controlando);
     estadoSessao = estado;
     renderizar();
   },
@@ -58,6 +62,9 @@ const controlador = new ControladorSessao({
   aoReceberInput: (evento) => window.api.input.executar(evento),
   aoLiberarInput: () => window.api.input.liberar(),
 });
+
+// Encerrar pelo botão do indicador flutuante.
+window.api.sessao.aoPedirEncerramento(() => controlador.encerrar());
 
 sinalizacao.iniciar();
 

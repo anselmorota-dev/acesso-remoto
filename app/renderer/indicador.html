@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- CSP: só recursos do próprio app; o indicador não abre conexões. -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'" />
+    <title>Sessão ativa — Acesso Remoto</title>
+    <link rel="stylesheet" href="./indicador.css" />
+  </head>
+  <body>
+    <!-- A barra inteira serve para arrastar a janela, exceto o botão. -->
+    <div class="barra" role="status">
+      <span class="ponto" aria-hidden="true"></span>
+      <p class="texto"><strong id="parceiro" class="id"></strong> está vendo e controlando este computador</p>
+      <button id="encerrar" type="button">Encerrar</button>
+    </div>
+    <script type="module" src="./indicador.ts"></script>
+  </body>
+</html>

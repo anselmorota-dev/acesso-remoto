@@ -5,6 +5,7 @@ import { app, BrowserWindow, Menu } from 'electron';
 import { PROTOCOL_VERSION } from '@acesso-remoto/shared';
 import { configurarAtencao } from './atencao';
 import { configurarCaptura } from './captura';
+import { configurarIndicador } from './indicador';
 import { configurarInput } from './input';
 
 function criarJanelaPrincipal(): void {
@@ -48,6 +49,7 @@ void app.whenReady().then(() => {
   Menu.setApplicationMenu(null);
   configurarCaptura();
   configurarAtencao();
+  configurarIndicador();
   configurarInput(); // antes de criar a janela: registra a limpeza ao fechá-la
   criarJanelaPrincipal();
 

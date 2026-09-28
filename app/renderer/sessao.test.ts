@@ -8,7 +8,7 @@ import { iniciarServidor, type ServidorSinalizacao } from '@acesso-remoto/server
 import type { EventoInput, Sinal } from '@acesso-remoto/shared';
 import { ErroCaptura } from './captura';
 import type { OpcoesPar, Par } from './par';
-import { ControladorSessao, type EstadoSessao } from './sessao';
+import { ControladorSessao, parceiroControlando, type EstadoSessao } from './sessao';
 import { ClienteSinalizacao } from './sinalizacao';
 
 /** Quando true, o próximo anfitrião falso falha ao capturar a tela. */
@@ -250,7 +250,24 @@ test('falha na captura encerra a sessão e o motivo chega ao visualizador', asyn
   assert.ok(anfitriao.pares[0]?.fechado && visualizador.pares[0]?.fechado);
 });
 
-const clique: EventoInput = { tipo: 'mouse_botao', botao: 'esquerdo', pressionado: true, x: 0.5, y: 0.5 };
+test('indicador: só o anfitrião em sessão tem alguém controlando', async () => {
+  const visualizador = await criarApp();
+  const anfitriao = await criarApp();
+  visualizador.controlador.conectar(anfitriao.id());
+  await aguardar(() => fase(anfitriao) === 'pedido_recebido');
+  // Pedido ainda não aceito: ninguém controla.
+  assert.equal(parceiroControlando(anfitriao.controlador.estado), null);
+
+  anfitriao.controlador.responderPedido(true);
+  await aguardar(() => fase(visualizador) === 'em_sessao' && fase(anfitriao) === 'em_sessao');
+  assert.equal(parceiroControlando(anfitriao.controlador.estado), visualizador.id());
+  assert.equal(parceiroControlando(visualizador.controlador.estado), null);
+
+  anfitriao.controlador.encerrar();
+  assert.equal(parceiroControlando(anfitriao.controlador.estado), null);
+});
+
+const clique: EventoInput ={ tipo: 'mouse_botao', botao: 'esquerdo', pressionado: true, x: 0.5, y: 0.5 };
 
 test('só o visualizador envia input pelo canal', async () => {
   const { visualizador, anfitriao } = await emSessao();

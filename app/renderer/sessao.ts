@@ -33,6 +33,11 @@ export type EstadoSessao =
       latenciaMs: number | null;
     };
 
+/** Quem está vendo e controlando este computador (anfitrião em sessão), ou null. */
+export function parceiroControlando(estado: EstadoSessao): IdCliente | null {
+  return estado.fase === 'em_sessao' && estado.papel === 'anfitriao' ? estado.parceiro : null;
+}
+
 export interface OpcoesControlador {
   /** Envia ao servidor; false se a conexão com ele não estiver aberta. */
   enviar: (mensagem: MensagemDoCliente) => boolean;

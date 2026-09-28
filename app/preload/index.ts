@@ -3,7 +3,14 @@
 // nunca é exposto inteiro: cada função usa um canal fixo, e o main valida
 // qualquer dado que o renderer mande junto.
 import { contextBridge, ipcRenderer } from 'electron';
-import { CANAL_CHAMAR_ATENCAO, CANAL_EXECUTAR_INPUT, CANAL_LIBERAR_INPUT, type ApiDoPreload } from './api';
+import {
+  CANAL_CHAMAR_ATENCAO,
+  CANAL_EXECUTAR_INPUT,
+  CANAL_INDICAR_SESSAO,
+  CANAL_LIBERAR_INPUT,
+  CANAL_PEDIDO_ENCERRAR,
+  type ApiDoPreload,
+} from './api';
 
 const api: ApiDoPreload = {
   versoes: {
@@ -15,6 +22,13 @@ const api: ApiDoPreload = {
   input: {
     executar: (evento) => ipcRenderer.send(CANAL_EXECUTAR_INPUT, evento),
     liberar: () => ipcRenderer.send(CANAL_LIBERAR_INPUT),
+  },
+  sessao: {
+    indicar: (parceiro) => ipcRenderer.send(CANAL_INDICAR_SESSAO, parceiro),
+    // O evento do IPC não é repassado: daria ao renderer acesso ao ipcRenderer.
+    aoPedirEncerramento: (tratar) => {
+      ipcRenderer.on(CANAL_PEDIDO_ENCERRAR, () => tratar());
+    },
   },
 };
 

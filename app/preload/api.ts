@@ -9,6 +9,10 @@ export const CANAL_CHAMAR_ATENCAO = 'janela:chamar-atencao';
 export const CANAL_EXECUTAR_INPUT = 'input:executar';
 /** Canal IPC renderer → main: solta botões apertados (fim da sessão). */
 export const CANAL_LIBERAR_INPUT = 'input:liberar';
+/** Canal IPC renderer → main: mostra o indicador de sessão (ID do parceiro) ou o esconde (null). */
+export const CANAL_INDICAR_SESSAO = 'sessao:indicar';
+/** Canal IPC main → renderer: pedido para encerrar a sessão (veio do indicador). */
+export const CANAL_PEDIDO_ENCERRAR = 'sessao:pedido-encerrar';
 
 export interface ApiDoPreload {
   /** Versões dos componentes, exibidas na tela para conferência. */
@@ -25,5 +29,12 @@ export interface ApiDoPreload {
     executar(evento: EventoInput): void;
     /** Solta tudo que estiver apertado; chamar ao fim da sessão. */
     liberar(): void;
+  };
+  /** Anfitrião: indicador flutuante de sessão ativa. */
+  readonly sessao: {
+    /** Mostra o indicador com quem está controlando, ou o esconde (null). */
+    indicar(parceiro: string | null): void;
+    /** Registra quem trata o pedido de encerrar feito pelo indicador. */
+    aoPedirEncerramento(tratar: () => void): void;
   };
 }

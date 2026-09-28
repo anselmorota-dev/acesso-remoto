@@ -84,7 +84,7 @@ Não tenho pressa: prefiro entender cada parte a avançar rápido.
 - [x] 2.1 Popup Aceitar/Recusar no anfitrião (janela vem para frente, contagem regressiva, som)
 - [x] 2.2 DataChannel com eventos de mouse (mover, clicar, rolar)
 - [x] 2.3 Teclado, incluindo atalhos (Ctrl, Alt, Shift) e caracteres com acento
-- [ ] 2.4 Encerrar sessão pelos dois lados; indicador de sessão ativa
+- [x] 2.4 Encerrar sessão pelos dois lados; indicador de sessão ativa
 - [ ] 2.5 Deploy do servidor no Render e teste entre duas redes diferentes
 - **Pronto quando:** consigo usar outro computador de verdade, pela internet.
 
@@ -111,8 +111,9 @@ Não tenho pressa: prefiro entender cada parte a avançar rápido.
 - **Render (plano gratuito):** o servidor "dorme" sem uso; a primeira conexão pode demorar alguns segundos.
 
 ## Estado atual
-Fase 1 concluída (etapas 1.1 a 1.5). Fase 2 em andamento: 2.1 a 2.3 concluídas. Próxima: 2.4
-(encerrar pelos dois lados e indicador de sessão ativa).
+Fase 1 concluída (etapas 1.1 a 1.5). Fase 2 em andamento: 2.1 a 2.4 concluídas. Próxima: 2.5
+(deploy do servidor no Render, STUN e teste entre duas redes). O usuário quer testar em outro
+notebook quando a fase 2 estiver pronta.
 
 Decisões já tomadas:
 - ID temporário: sorteado pelo servidor a cada conexão, guardado só em memória.
@@ -155,6 +156,18 @@ Decisões já tomadas:
 - Captura de teclado só com a tela remota à vista (`definirAtivo`); preventDefault em tudo.
   Menu padrão do Electron removido (`Menu.setApplicationMenu(null)`): Ctrl+W/Ctrl+R/Alt
   agiam no app. Win+tecla, Alt+Tab e Ctrl+Alt+Del não são capturáveis (o sistema age antes).
+- Indicador de sessão (2.4, `main/indicador.ts`): janela flutuante no topo, centralizada, nível
+  "screen-saver", sem moldura, `focusable: false` (não rouba foco), `closable: false`, fora da
+  barra de tarefas, arrastável. Aparece no vídeo do visualizador (proposital). Página própria
+  (`renderer/indicador.html`) e preload próprio que só expõe `window.indicador.encerrar()`.
+  Fluxo: renderer principal → `sessao:indicar` (ID ou null, via `parceiroControlando`) → main;
+  Encerrar → `indicador:encerrar` → main → `sessao:pedido-encerrar` → janela principal.
+  Some se a janela principal fechar, travar ou recarregar; fechar a principal fecha o app.
+- Preloads em sandbox não carregam outros arquivos: os dois preloads não podem importar o mesmo
+  módulo em tempo de execução (por isso `preload/api-indicador.ts` é separado de `api.ts`). O
+  plugin `preloadsSemChunks` (electron.vite.config.ts) faz o build falhar se isso acontecer.
+  `isolatedEntries` do electron-vite 5 foi descartado: experimental e quebra fora de um terminal
+  (chama `process.stdout.clearLine`/`moveCursor` sem checar TTY).
 - WebRTC (`renderer/par.ts`): o anfitrião cria a oferta e o DataChannel "controle"; trickle
   ICE com fila de candidatos que chegam antes da descrição remota. Ping/pong pelo canal mede
   a latência. Mensagens do canal validadas com Zod (`shared/src/canal.ts`), máx. 16 KB.
@@ -185,6 +198,10 @@ Notas para as próximas etapas:
 - Um "enviar Ctrl+Alt+Del" exige serviço do Windows (SAS); fica para a fase 5.
 - Teste E2E do teclado: criar um textarea de teste na janela do anfitrião, focá-lo com clique
   remoto e só então digitar (as teclas vão para onde estiver o foco real do Windows).
+- Teste E2E com o indicador aberto: o processo tem duas janelas e `MainWindowHandle` do
+  PowerShell pode ser o indicador; escolher a janela pelo título (EnumWindows). O indicador é
+  um alvo "page" separado no CDP (URL com `indicador.html`).
+- Capturas de tela nos testes E2E mostram a tela real do usuário: não guardar além do necessário.
 - Teste E2E do mouse: anfitrião e visualizador na mesma máquina movem o mouse real; posicionar
   as janelas lado a lado (user32 `SetWindowPos`) e clicar só em área vazia da janela do anfitrião.
 - Endurecimento pendente do Electron: `setPermissionRequestHandler`/`setPermissionCheckHandler`
