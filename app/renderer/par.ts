@@ -44,9 +44,15 @@ export interface Par {
   fechar(): void;
 }
 
-// Sem servidores STUN/TURN por enquanto: na mesma máquina ou rede local os
-// endereços locais bastam. Entre redes diferentes (etapa 2.5) será preciso STUN.
-const CONFIGURACAO: RTCConfiguration = { iceServers: [] };
+// STUN: cada lado pergunta a um servidor público "qual é meu endereço visto
+// de fora?" e envia esse endereço como candidato ICE. Isso permite a conexão
+// direta entre redes diferentes quando os roteadores deixam (a maioria das
+// redes domésticas). Dois provedores, um de reserva do outro. Redes que
+// bloqueiam conexão direta (ex.: corporativas) vão precisar de TURN (etapa 5.3).
+// O STUN só vê o endereço; vídeo e comandos nunca passam por ele.
+const CONFIGURACAO: RTCConfiguration = {
+  iceServers: [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun.cloudflare.com:3478'] }],
+};
 
 const INTERVALO_PING_MS = 2000;
 

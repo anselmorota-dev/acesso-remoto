@@ -15,11 +15,11 @@
   },
   "dependencies": {
     "@acesso-remoto/shared": "*",
+    "tsx": "^4.23.15",
     "ws": "^8.22.0"
   },
   "devDependencies": {
     "@types/node": "^24",
-    "@types/ws": "^8.18.1",
-    "tsx": "^4.23.15"
+    "@types/ws": "^8.18.1"
   }
 }

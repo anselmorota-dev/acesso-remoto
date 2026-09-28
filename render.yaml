@@ -1,0 +1,18 @@
+# Planta (Blueprint) do Render: descreve o serviço do servidor de sinalização.
+# No painel do Render: New → Blueprint → escolher este repositório.
+services:
+  - type: web
+    name: acesso-remoto-sinalizacao
+    runtime: node
+    plan: free
+    # Instala só o servidor (e o pacote shared, de que ele depende), sem as
+    # dependências de desenvolvimento e sem o app Electron.
+    buildCommand: npm ci -w @acesso-remoto/server --omit=dev
+    startCommand: npm start -w @acesso-remoto/server
+    # O Render chama esta rota para saber se o serviço está no ar.
+    healthCheckPath: /saude
+    # Faz deploy de novo a cada push na branch principal.
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "24"
