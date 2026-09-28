@@ -1,7 +1,17 @@
 // Ponto de entrada do servidor de sinalização.
-// Na etapa 1.2 este arquivo vai abrir o servidor WebSocket e distribuir IDs.
 import { PROTOCOL_VERSION } from '@acesso-remoto/shared';
+import { iniciarServidor } from './servidor.js';
 
-const PORT = Number(process.env.PORT ?? 8080);
+// O Render informa a porta pela variável PORT.
+const porta = Number(process.env.PORT ?? 8080);
 
-console.log(`[server] iniciado (protocolo v${PROTOCOL_VERSION}), porta configurada: ${PORT}`);
+const servidor = await iniciarServidor({ porta });
+console.log(`[server] escutando na porta ${servidor.porta} (protocolo v${PROTOCOL_VERSION})`);
+
+// Encerramento limpo ao receber Ctrl+C ou o sinal de parada do Render.
+for (const sinal of ['SIGINT', 'SIGTERM'] as const) {
+  process.once(sinal, () => {
+    console.log(`[server] ${sinal} recebido, encerrando...`);
+    void servidor.fechar().then(() => process.exit(0));
+  });
+}
