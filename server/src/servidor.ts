@@ -16,7 +16,7 @@ import {
 } from '@acesso-remoto/shared';
 import type { Conexao, ConexaoRegistrada } from './conexao.js';
 import { InstalacoesEmMemoria, type RepositorioInstalacoes } from './instalacoes.js';
-import { chaveDoIp, criarLimites, ipDoCliente, type ConfigLimites } from './limites.js';
+import { chaveDoIp, criarLimites, ipDoCliente, ipInterno, type ConfigLimites } from './limites.js';
 import { criarGerenciadorSessoes } from './sessoes.js';
 
 export interface OpcoesServidor {
@@ -89,16 +89,6 @@ export async function iniciarServidor(opcoes: OpcoesServidor): Promise<ServidorS
   const http: Server = createServer((req, res) => {
     if (req.method === 'GET' && req.url === '/saude') {
       res.writeHead(200, { 'Content-Type': 'text/plain' }).end('ok');
-    } else if (req.method === 'GET' && req.url === '/diagnostico-ip') {
-      // TEMPORÁRIO (3.5): mostra a quem chama os próprios cabeçalhos de IP,
-      // para medir quantos proxies o Render põe no caminho. Será removido.
-      const cabecalhos = ['x-forwarded-for', 'cf-connecting-ip', 'true-client-ip', 'x-real-ip'];
-      res.writeHead(200, { 'Content-Type': 'application/json' }).end(
-        JSON.stringify({
-          ...Object.fromEntries(cabecalhos.map((c) => [c, req.headers[c] ?? null])),
-          remoto: req.socket.remoteAddress,
-        }),
-      );
     } else {
       res.writeHead(404).end();
     }
@@ -266,9 +256,13 @@ export async function iniciarServidor(opcoes: OpcoesServidor): Promise<ServidorS
   }
 
   wss.on('connection', (socket, pedido) => {
+    const ip = ipDoCliente(pedido, proxiesConfiaveis);
+    if (proxiesConfiaveis > 0 && ipInterno(ip)) {
+      log(`[server] AVISO: IP do cliente saiu interno (${ip}); confira PROXIES_CONFIAVEIS`);
+    }
     const conexao: Conexao = {
       socket,
-      ip: chaveDoIp(ipDoCliente(pedido, proxiesConfiaveis)),
+      ip: chaveDoIp(ip),
       id: null,
       registro: null,
       viva: true,

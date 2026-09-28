@@ -19,8 +19,13 @@ if (urlBanco) {
   console.log('[server] DATABASE_URL não definida: IDs fixos só em memória (somem ao reiniciar)');
 }
 
-// Quantos proxies confiáveis acrescentam o IP do cliente ao X-Forwarded-For.
-const proxiesConfiaveis = Number(process.env.PROXIES_CONFIAVEIS ?? 0);
+// Quantos proxies confiáveis acrescentam ao X-Forwarded-For (para achar o IP
+// real do cliente, contando do fim). No Render (que define RENDER=true),
+// medido em 28/09/2026: "cliente, Cloudflare, balanceador" + proxy local →
+// o cliente é o 3º a partir do fim. PROXIES_CONFIAVEIS sobrescreve.
+const PROXIES_NO_RENDER = 3;
+const proxiesConfiaveis = Number(process.env.PROXIES_CONFIAVEIS ?? (process.env.RENDER ? PROXIES_NO_RENDER : 0));
+console.log(`[server] proxies confiáveis no caminho: ${proxiesConfiaveis}`);
 
 const servidor = await iniciarServidor({ porta, instalacoes, proxiesConfiaveis });
 console.log(`[server] escutando na porta ${servidor.porta} (protocolo v${PROTOCOL_VERSION})`);

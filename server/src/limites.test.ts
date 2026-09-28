@@ -1,7 +1,7 @@
 // Testes dos limites de tentativas e da leitura do IP do cliente.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { JanelaDeEventos, chaveDoIp, ipDoCliente } from './limites.js';
+import { JanelaDeEventos, chaveDoIp, ipDoCliente, ipInterno } from './limites.js';
 
 function relogio() {
   let agora = 0;
@@ -74,6 +74,15 @@ test('IP do cliente: direto ou atrás de proxies confiáveis (contando do fim)',
   assert.equal(ipDoCliente(pedido(undefined), 1), '10.0.0.1');
   // IPv4 escrito como IPv6.
   assert.equal(ipDoCliente(pedido(undefined, '::ffff:127.0.0.1'), 0), '127.0.0.1');
+});
+
+test('IP interno é reconhecido (sinal de proxies mal configurados)', () => {
+  for (const ip of ['10.29.79.170', '127.0.0.1', '192.168.0.132', '172.16.0.1', '172.31.9.9', '::1', 'fd00::1']) {
+    assert.equal(ipInterno(ip), true, ip);
+  }
+  for (const ip of ['177.72.172.74', '172.71.147.184', '8.8.8.8', '2804:14c::1']) {
+    assert.equal(ipInterno(ip), false, ip);
+  }
 });
 
 test('chave do IP: IPv4 inteiro; IPv6 pelo prefixo /64 (um usuário costuma ter o /64 todo)', () => {

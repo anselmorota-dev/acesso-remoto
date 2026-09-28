@@ -117,6 +117,15 @@ export function ipDoCliente(pedido: PedidoHttp, proxiesConfiaveis: number): stri
   return escolhido ? normalizar(escolhido) : direto;
 }
 
+/**
+ * Endereço de rede interna/local? Atrás de proxies, o IP do cliente nunca
+ * deveria ser assim: se for, o número de proxies configurado está errado
+ * (todos os usuários acabariam dividindo o mesmo limite).
+ */
+export function ipInterno(ip: string): boolean {
+  return /^(10\.|127\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|169\.254\.)/.test(ip) || ip === '::1' || /^f[cd]/i.test(ip);
+}
+
 /** "::ffff:1.2.3.4" (IPv4 escrito como IPv6) → "1.2.3.4". */
 function normalizar(ip: string): string {
   return ip.startsWith('::ffff:') && ip.includes('.') ? ip.slice(7) : ip;
