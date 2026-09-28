@@ -98,7 +98,8 @@ Não tenho pressa: prefiro entender cada parte a avançar rápido.
 - [x] 3.2 ID fixo por instalação (o servidor lembra cada instalação; exige armazenamento persistente)
 - [x] 3.3 Conectar com senha sem precisar de aceite
 - [x] 3.4 Iniciar com o sistema e ficar na bandeja
-- [ ] 3.5 Limite de tentativas no servidor
+- [x] 3.5 Limite de tentativas no servidor
+- **Pronto:** ✅ fase 3 concluída em 28/09/2026
 
 ### Fase 4 — Recursos de produtividade
 - [ ] 4.1 Área de transferência compartilhada
@@ -118,9 +119,9 @@ Não tenho pressa: prefiro entender cada parte a avançar rápido.
 
 ## Estado atual
 Fase 1 concluída. Fase 2: 2.1 a 2.4 concluídas; 2.5 publicada e testada na mesma máquina,
-falta o teste entre duas redes (o usuário fará depois, com outro notebook). Fase 3: 3.1
-a 3.4 concluídas (ID fixo no Neon: a mesma chave manteve o ID em 3 instâncias diferentes do
-servidor no Render, 28/09/2026). Próxima: 3.5 (limite de tentativas no servidor).
+falta o teste entre duas redes (o usuário fará depois, com outro notebook). Fase 3 concluída
+(28/09/2026; servidor em produção com protocolo v5). Próxima: fase 4 (4.1 área de
+transferência compartilhada). Pendente do usuário: teste real entre duas redes (2.5).
 
 Decisões já tomadas:
 - ID fixo por instalação (3.2, protocolo v3): cada instalação tem um par Ed25519
@@ -163,6 +164,19 @@ Decisões já tomadas:
   electron.exe + pasta do projeto (entrada "electron.app.Electron"); vale de verdade com o
   instalador (5.4). Janela principal com `backgroundThrottling: false` (anfitrião escondido
   transmite normalmente: ~29 fps no teste).
+- Limites no servidor (3.5, protocolo v5, `server/src/limites.ts`, em memória: zeram ao
+  reiniciar): pedidos de conexão 20/min por IP e por ID (`erro limite_excedido`); instalações
+  novas 10/h por IP (protege o banco; `buscarId`/`criarId` separados para isso); senhas
+  erradas contadas pelo `encerrar {senha_incorreta|senha_bloqueada}` do anfitrião, só em sessão
+  por senha: 5 em 10 min do mesmo IP no mesmo ID → esse IP bloqueado 15 min nesse ID; 30 em 1 h
+  no ID (qualquer IP) → acesso com senha a ele pausado 1 h. Bloqueado recebe
+  `pedido_recusado {bloqueado}` antes de o pedido chegar ao anfitrião (sem conexão direta, sem
+  IP exposto); o aceite comum continua valendo. Escolha do usuário: IP + ID com teto por ID
+  (um atacante sozinho não tranca o dono para fora).
+- IP do cliente: X-Forwarded-For contado do fim (o cliente forja o começo). No Render (medido
+  em 28/09/2026): "cliente, Cloudflare, balanceador" + proxy local → 3 proxies (`RENDER`
+  definida → 3; `PROXIES_CONFIAVEIS` sobrescreve). Log avisa se o IP escolhido for interno.
+  IPv6 agrupado por /64. Verificado em produção: IP forjado não escapa do limite.
 - Instância única por pasta de dados (`requestSingleInstanceLock`): duas cópias com a mesma
   identidade se derrubariam; abrir de novo foca a janela existente.
 - Senha (3.1): `@node-rs/argon2` (sem script de instalação; o `crypto.argon2` do Node não funciona
