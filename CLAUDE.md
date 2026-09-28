@@ -171,7 +171,13 @@ Decisões já tomadas:
 - WebRTC (`renderer/par.ts`): o anfitrião cria a oferta e o DataChannel "controle"; trickle
   ICE com fila de candidatos que chegam antes da descrição remota. Ping/pong pelo canal mede
   a latência. Mensagens do canal validadas com Zod (`shared/src/canal.ts`), máx. 16 KB.
-- Sem STUN/TURN ainda (`iceServers: []`): funciona na mesma máquina/rede. Decidir STUN na 2.5.
+- STUN (2.5): Google (`stun.l.google.com:19302`) e Cloudflare (`stun.cloudflare.com:3478`) em
+  `renderer/par.ts`. Sem TURN (5.3): redes que bloqueiam conexão direta ainda não funcionam.
+- Deploy (2.5): `render.yaml` (Blueprint) na raiz; build `npm ci -w @acesso-remoto/server
+  --omit=dev` (não instala o Electron), start `npm start -w @acesso-remoto/server` (tsx é
+  dependência de produção do servidor), Node 24, verificação em `/saude`, deploy a cada push.
+  Simulado numa cópia limpa do repositório: ok. Faltam: o usuário criar o repositório no GitHub
+  e o Blueprint no Render; depois configurar a URL wss:// no app e testar entre duas redes.
 - Captura (1.5): o renderer chama `getDisplayMedia`; o main (`main/captura.ts`) autoriza só
   pedidos do quadro principal das nossas janelas e entrega o monitor principal. Até 30 fps,
   `contentHint = 'detail'` (prioriza nitidez). A trilha é adicionada antes da oferta.
