@@ -7,6 +7,7 @@ import { ControladorSessao, type EstadoSessao } from './sessao';
 import { ClienteSinalizacao, type EstadoSinalizacao } from './sinalizacao';
 import { montarTelaInicio } from './telas/inicio';
 import { montarTelaSessao } from './telas/sessao';
+import { montarTelaVisualizacao } from './telas/visualizacao';
 
 let estadoSinalizacao: EstadoSinalizacao = { fase: 'conectando' };
 let estadoSessao: EstadoSessao = { fase: 'livre' };
@@ -19,9 +20,12 @@ const telaSessao = montarTelaSessao({
   aoResponderPedido: (aceito) => controlador.responderPedido(aceito),
 });
 
+const telaVisualizacao = montarTelaVisualizacao();
+
 function renderizar(): void {
   telaInicio.atualizar(estadoSinalizacao, estadoSessao);
   telaSessao.atualizar(estadoSessao);
+  telaVisualizacao.atualizar(estadoSessao);
 }
 
 const sinalizacao = new ClienteSinalizacao({
@@ -41,6 +45,7 @@ const controlador = new ControladorSessao({
     renderizar();
   },
   criarPar: (opcoes) => new ConexaoPar(opcoes),
+  aoMudarVideo: (video) => telaVisualizacao.definirVideo(video),
 });
 
 sinalizacao.iniciar();

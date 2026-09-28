@@ -217,6 +217,15 @@ test('encerrar avisa o parceiro e libera os dois', async () => {
   await pedir(visualizador, anfitriao);
 });
 
+test('o motivo de uma falha é repassado ao parceiro', async () => {
+  const { visualizador, anfitriao } = await emSessao();
+  anfitriao.enviar({ tipo: 'encerrar', motivo: 'captura_indisponivel' });
+  assert.deepEqual(await visualizador.proxima(), {
+    tipo: 'sessao_encerrada',
+    motivo: 'captura_indisponivel',
+  });
+});
+
 test('queda de um lado encerra a sessão do outro', async () => {
   const { visualizador, anfitriao } = await emSessao();
   anfitriao.socket.terminate();

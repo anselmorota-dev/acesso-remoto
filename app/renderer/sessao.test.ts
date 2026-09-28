@@ -6,9 +6,13 @@ import assert from 'node:assert/strict';
 import { afterEach, beforeEach, test } from 'node:test';
 import { iniciarServidor, type ServidorSinalizacao } from '@acesso-remoto/server/servidor';
 import type { Sinal } from '@acesso-remoto/shared';
+import { ErroCaptura } from './captura';
 import type { OpcoesPar, Par } from './par';
 import { ControladorSessao, type EstadoSessao } from './sessao';
 import { ClienteSinalizacao } from './sinalizacao';
+
+/** Quando true, o próximo anfitrião falso falha ao capturar a tela. */
+let simularFalhaCaptura = false;
 
 /** Conexão falsa: registra o que o controlador pede e permite simular eventos. */
 class ParFalso implements Par {
@@ -18,6 +22,7 @@ class ParFalso implements Par {
   constructor(readonly opcoes: OpcoesPar) {}
   async iniciar() {
     this.iniciado = true;
+    if (this.opcoes.papel === 'anfitriao' && simularFalhaCaptura) throw new ErroCaptura('sem permissão');
     // Como o real: o anfitrião começa enviando a oferta.
     if (this.opcoes.papel === 'anfitriao') this.opcoes.enviarSinal({ tipo: 'oferta', sdp: 'oferta-falsa' });
   }
@@ -38,6 +43,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  simularFalhaCaptura = false;
   for (const limpar of limpezas.splice(0)) limpar();
   await servidor.fechar();
 });
@@ -46,6 +52,7 @@ afterEach(async () => {
 async function criarApp() {
   const estados: EstadoSessao[] = [];
   const pares: ParFalso[] = [];
+  const videos: Array<MediaStream | null> = [];
   let id = '';
   const sinalizacao: ClienteSinalizacao = new ClienteSinalizacao({
     url: `ws://127.0.0.1:${servidor.porta}`,
@@ -64,11 +71,12 @@ async function criarApp() {
       pares.push(par);
       return par;
     },
+    aoMudarVideo: (video) => videos.push(video),
   });
   sinalizacao.iniciar();
   limpezas.push(() => sinalizacao.parar());
   await aguardar(() => id !== '');
-  return { controlador, sinalizacao, estados, pares, id: () => id };
+  return { controlador, sinalizacao, estados, pares, videos, id: () => id };
 }
 
 type App = Awaited<ReturnType<typeof criarApp>>;
@@ -204,4 +212,29 @@ test('nova sessão funciona depois de encerrar a anterior', async () => {
   anfitriao.controlador.responderPedido(true);
   await aguardar(() => fase(visualizador) === 'em_sessao' && fase(anfitriao) === 'em_sessao');
   assert.equal(visualizador.pares.length, 2);
+});
+
+test('vídeo recebido vai para a tela e é retirado ao encerrar', async () => {
+  const { visualizador, anfitriao } = await emSessao();
+  const videoFalso = { id: 'tela-remota' } as unknown as MediaStream;
+  visualizador.pares[0]?.opcoes.aoReceberVideo?.(videoFalso);
+  assert.deepEqual(visualizador.videos, [videoFalso]);
+
+  anfitriao.controlador.encerrar();
+  await aguardar(() => fase(visualizador) === 'livre');
+  assert.deepEqual(visualizador.videos, [videoFalso, null]);
+});
+
+test('falha na captura encerra a sessão e o motivo chega ao visualizador', async () => {
+  simularFalhaCaptura = true;
+  const visualizador = await criarApp();
+  const anfitriao = await criarApp();
+  visualizador.controlador.conectar(anfitriao.id());
+  await aguardar(() => fase(anfitriao) === 'pedido_recebido');
+  anfitriao.controlador.responderPedido(true); // aceita, mas a captura vai falhar
+
+  await aguardar(() => fase(anfitriao) === 'livre' && fase(visualizador) === 'livre');
+  assert.equal(aviso(anfitriao), 'Não foi possível capturar a tela deste computador.');
+  assert.equal(aviso(visualizador), 'O outro computador não conseguiu capturar a tela.');
+  assert.ok(anfitriao.pares[0]?.fechado && visualizador.pares[0]?.fechado);
 });

@@ -60,6 +60,12 @@
         </form>
       </section>
     </main>
+    <!-- Visualização remota: a tela do anfitrião, mostrada ao visualizador. -->
+    <section id="tela-remota" class="tela-remota" aria-label="Tela do computador remoto" hidden>
+      <video id="video-remoto" autoplay muted playsinline></video>
+      <p id="aguardando-video" class="aguardando-video">Aguardando a imagem da tela remota…</p>
+    </section>
+
     <footer id="rodape" class="rodape"></footer>
     <script type="module" src="./main.ts"></script>
   </body>

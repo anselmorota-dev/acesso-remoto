@@ -214,3 +214,49 @@ button:disabled {
   gap: 8px;
   margin-top: 20px;
 }
+
+/* Visualização remota ---------------------------------------------------- */
+
+.tela-remota {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  margin: 12px 0 0;
+  background: #000;
+}
+
+.tela-remota[hidden] {
+  display: none;
+}
+
+.tela-remota video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  /* Mostra a tela inteira sem distorcer; sobra fica em preto. */
+  object-fit: contain;
+}
+
+.aguardando-video {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  margin: 0;
+  color: #c9ced6;
+}
+
+.aguardando-video[hidden] {
+  display: none;
+}
+
+/* Durante a visualização remota, a tela inicial e o rodapé saem de cena. */
+body[data-tela='remota'] .inicio,
+body[data-tela='remota'] .rodape {
+  display: none;
+}
+
+body[data-tela='remota'] .painel {
+  margin-top: 8px;
+}

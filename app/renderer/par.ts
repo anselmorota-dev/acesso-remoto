@@ -7,6 +7,9 @@
 //      um ao outro assim que surgem ("trickle ICE");
 //   4. o navegador testa os caminhos e escolhe um: a conexão fica "connected".
 // Depois disso os dados vão direto de um computador ao outro.
+//
+// O anfitrião captura a tela e adiciona a trilha de vídeo antes de criar a
+// oferta, então o vídeo já entra na primeira negociação.
 import {
   TAMANHO_MAXIMO_MENSAGEM_CANAL,
   decodificarMensagem,
@@ -15,6 +18,7 @@ import {
   type Papel,
   type Sinal,
 } from '@acesso-remoto/shared';
+import { capturarTela } from './captura';
 
 export type EstadoPar = 'conectando' | 'conectado' | 'falhou' | 'fechado';
 
@@ -24,6 +28,8 @@ export interface OpcoesPar {
   aoMudarEstado: (estado: EstadoPar) => void;
   /** Tempo de ida e volta medido pelo DataChannel. */
   aoMedirLatencia?: (ms: number) => void;
+  /** Visualizador: chegou o vídeo da tela do anfitrião. */
+  aoReceberVideo?: (video: MediaStream) => void;
 }
 
 /** O que o controlador de sessão precisa de uma conexão (permite trocar por um falso nos testes). */
@@ -47,6 +53,8 @@ export class ConexaoPar implements Par {
   /** Candidatos que chegaram antes da descrição remota; aplicados depois. */
   private candidatosPendentes: RTCIceCandidateInit[] = [];
   private estado: EstadoPar = 'conectando';
+  /** Anfitrião: a captura da tela, que precisa ser parada ao encerrar. */
+  private telaLocal: MediaStream | null = null;
 
   constructor(opcoes: OpcoesPar) {
     this.opcoes = opcoes;
@@ -89,12 +97,26 @@ export class ConexaoPar implements Par {
       this.prepararCanal(this.pc.createDataChannel('controle'));
     } else {
       this.pc.addEventListener('datachannel', (evento) => this.prepararCanal(evento.channel));
+      this.pc.addEventListener('track', (evento) => {
+        opcoes.aoReceberVideo?.(evento.streams[0] ?? new MediaStream([evento.track]));
+      });
     }
   }
 
   /** O anfitrião começa a negociação; o visualizador só espera a oferta. */
   async iniciar(): Promise<void> {
     if (this.opcoes.papel !== 'anfitriao') return;
+
+    const tela = await capturarTela();
+    // A sessão pode ter sido encerrada enquanto esperávamos a captura:
+    // nesse caso a captura é parada na hora, nunca fica ativa à toa.
+    if (this.estado === 'fechado') {
+      pararCaptura(tela);
+      return;
+    }
+    this.telaLocal = tela;
+    for (const trilha of tela.getTracks()) this.pc.addTrack(trilha, tela);
+
     await this.pc.setLocalDescription(await this.pc.createOffer());
     this.enviarDescricaoLocal();
   }
@@ -123,6 +145,9 @@ export class ConexaoPar implements Par {
 
   fechar(): void {
     clearInterval(this.timerPing);
+    // Parar as trilhas é o que desliga a captura da tela de fato.
+    if (this.telaLocal) pararCaptura(this.telaLocal);
+    this.telaLocal = null;
     this.canal?.close();
     this.pc.close();
     this.mudarEstado('fechado');
@@ -180,4 +205,8 @@ export class ConexaoPar implements Par {
         break;
     }
   }
+}
+
+function pararCaptura(tela: MediaStream): void {
+  for (const trilha of tela.getTracks()) trilha.stop();
 }

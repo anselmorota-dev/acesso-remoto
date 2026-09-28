@@ -140,7 +140,7 @@ export async function iniciarServidor(opcoes: OpcoesServidor): Promise<ServidorS
         sessoes.repassarSinal(registrada, mensagem.sinal);
         return;
       case 'encerrar':
-        sessoes.encerrar(registrada, 'encerrada_pelo_parceiro');
+        sessoes.encerrar(registrada, mensagem.motivo ?? 'encerrada_pelo_parceiro');
         return;
     }
   }

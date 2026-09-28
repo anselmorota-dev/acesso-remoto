@@ -7,9 +7,11 @@ import type {
   MensagemDoCliente,
   MensagemDoServidor,
   MotivoEncerramento,
+  MotivoFalha,
   MotivoRecusa,
   Papel,
 } from '@acesso-remoto/shared';
+import { ErroCaptura } from './captura';
 import type { EstadoPar, OpcoesPar, Par } from './par';
 
 export type EstadoSessao =
@@ -32,6 +34,8 @@ export interface OpcoesControlador {
   enviar: (mensagem: MensagemDoCliente) => boolean;
   aoMudarEstado: (estado: EstadoSessao) => void;
   criarPar: (opcoes: OpcoesPar) => Par;
+  /** Visualizador: vídeo da tela remota chegou (ou null quando a sessão acaba). */
+  aoMudarVideo?: (video: MediaStream | null) => void;
 }
 
 const TEXTO_RECUSA: Record<MotivoRecusa, string> = {
@@ -44,6 +48,14 @@ const TEXTO_RECUSA: Record<MotivoRecusa, string> = {
 const TEXTO_ENCERRAMENTO: Record<MotivoEncerramento, string> = {
   encerrada_pelo_parceiro: 'A sessão foi encerrada pelo outro computador.',
   parceiro_desconectou: 'O outro computador se desconectou.',
+  captura_indisponivel: 'O outro computador não conseguiu capturar a tela.',
+  falha_conexao: 'Não foi possível estabelecer a conexão direta.',
+};
+
+/** Texto mostrado no lado onde a falha aconteceu. */
+const TEXTO_FALHA_LOCAL: Record<MotivoFalha, string> = {
+  captura_indisponivel: 'Não foi possível capturar a tela deste computador.',
+  falha_conexao: 'Não foi possível estabelecer a conexão direta.',
 };
 
 export class ControladorSessao {
@@ -176,17 +188,21 @@ export class ControladorSessao {
       aoMedirLatencia: (latenciaMs) => {
         if (this.par === par) this.atualizarSessao({ latenciaMs });
       },
+      aoReceberVideo: (video) => {
+        if (this.par === par) this.opcoes.aoMudarVideo?.(video);
+      },
     });
     this.par = par;
     par.iniciar().catch((erro: unknown) => this.falhaNaConexao(erro));
   }
 
   private falhaNaConexao(erro: unknown): void {
-    console.error('[sessao] falha na conexão direta:', erro);
+    console.error('[sessao] falha na sessão:', erro);
     if (this.estadoAtual.fase !== 'em_sessao') return;
-    this.opcoes.enviar({ tipo: 'encerrar' });
+    const motivo: MotivoFalha = erro instanceof ErroCaptura ? 'captura_indisponivel' : 'falha_conexao';
+    this.opcoes.enviar({ tipo: 'encerrar', motivo });
     this.fecharPar();
-    this.mudar({ fase: 'livre', aviso: 'Não foi possível estabelecer a conexão direta.' });
+    this.mudar({ fase: 'livre', aviso: TEXTO_FALHA_LOCAL[motivo] });
   }
 
   private atualizarSessao(mudancas: { conexao?: EstadoPar; latenciaMs?: number }): void {
@@ -195,8 +211,10 @@ export class ControladorSessao {
 
   private fecharPar(): void {
     const par = this.par;
+    if (!par) return;
     this.par = null; // antes de fechar, para ignorar os eventos que o fechamento dispara
-    par?.fechar();
+    par.fechar();
+    this.opcoes.aoMudarVideo?.(null);
   }
 
   private mudar(estado: EstadoSessao): void {

@@ -37,6 +37,15 @@ export const esquemaSinal = z.discriminatedUnion('tipo', [
 ]);
 export type Sinal = z.infer<typeof esquemaSinal>;
 
+/** Falhas que fazem um lado encerrar a sessão; repassadas ao outro lado. */
+export const esquemaMotivoFalha = z.enum([
+  /** O anfitrião não conseguiu capturar a própria tela. */
+  'captura_indisponivel',
+  /** A conexão direta (WebRTC) não pôde ser estabelecida ou caiu. */
+  'falha_conexao',
+]);
+export type MotivoFalha = z.infer<typeof esquemaMotivoFalha>;
+
 // ---------------------------------------------------------------------------
 // App → servidor
 // ---------------------------------------------------------------------------
@@ -54,8 +63,8 @@ export const esquemaMensagemDoCliente = z.discriminatedUnion('tipo', [
   z.object({ tipo: z.literal('responder_pedido'), origem: esquemaId, aceito: z.boolean() }),
   /** Sinal WebRTC para o outro lado da sessão. */
   z.object({ tipo: z.literal('sinal'), sinal: esquemaSinal }),
-  /** Cancela o pedido em andamento ou encerra a sessão atual. */
-  z.object({ tipo: z.literal('encerrar') }),
+  /** Cancela o pedido em andamento ou encerra a sessão atual (com o motivo, se foi falha). */
+  z.object({ tipo: z.literal('encerrar'), motivo: esquemaMotivoFalha.optional() }),
 ]);
 export type MensagemDoCliente = z.infer<typeof esquemaMensagemDoCliente>;
 
@@ -100,6 +109,8 @@ export const esquemaMotivoEncerramento = z.enum([
   'encerrada_pelo_parceiro',
   /** O outro lado perdeu a conexão com o servidor. */
   'parceiro_desconectou',
+  // O outro lado encerrou por uma falha:
+  ...esquemaMotivoFalha.options,
 ]);
 export type MotivoEncerramento = z.infer<typeof esquemaMotivoEncerramento>;
 
