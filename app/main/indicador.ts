@@ -86,6 +86,19 @@ function mostrar(parceiro: IdCliente, novoDono: WebContents): void {
   indicador = janela;
 }
 
+/**
+ * Há alguém vendo e controlando este computador agora? O indicador aparece
+ * exatamente nesse período, então o estado dele é a fonte da verdade no main.
+ */
+export function sessaoComoAnfitriao(): boolean {
+  return dono !== null;
+}
+
+/** A janela é o indicador (e não a janela principal do app)? */
+export function ehJanelaDoIndicador(janela: BrowserWindow): boolean {
+  return janela === indicador;
+}
+
 export function configurarIndicador(): void {
   ipcMain.on(CANAL_INDICAR_SESSAO, (evento, dados: unknown) => {
     // Só a janela principal (nunca o próprio indicador) liga ou desliga o indicador.

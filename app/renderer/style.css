@@ -212,6 +212,59 @@ button:disabled {
   font-variant-numeric: tabular-nums;
 }
 
+/* Acesso não supervisionado --------------------------------------------- */
+
+.cartao-largo {
+  grid-column: 1 / -1;
+}
+
+.status-senha {
+  margin: 0;
+  font-weight: 600;
+}
+
+.status-senha[data-definida='true'] {
+  color: var(--ok);
+}
+
+.acoes-cartao {
+  display: flex;
+  gap: 8px;
+}
+
+.campo {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 12px;
+  font-size: 0.9rem;
+}
+
+.campo[hidden] {
+  display: none;
+}
+
+.campo input {
+  padding: 8px 10px;
+  border: 1px solid var(--borda);
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+
+.campo input:focus {
+  outline: 2px solid var(--destaque);
+  outline-offset: 1px;
+}
+
+.erro {
+  min-height: 1.3em;
+  margin: 8px 0 0;
+  font-size: 0.9rem;
+  color: var(--erro);
+}
+
 .acoes {
   display: flex;
   justify-content: flex-end;

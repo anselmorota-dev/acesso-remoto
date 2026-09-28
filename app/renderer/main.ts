@@ -6,6 +6,7 @@ import { tocarSomPedido } from './alerta';
 import { ConexaoPar } from './par';
 import { ControladorSessao, parceiroControlando, type EstadoSessao } from './sessao';
 import { ClienteSinalizacao, type EstadoSinalizacao } from './sinalizacao';
+import { montarTelaAcesso } from './telas/acesso';
 import { montarTelaInicio } from './telas/inicio';
 import { montarTelaSessao } from './telas/sessao';
 import { montarTelaVisualizacao } from './telas/visualizacao';
@@ -24,10 +25,12 @@ const telaSessao = montarTelaSessao({
 const telaVisualizacao = montarTelaVisualizacao({
   aoInput: (evento) => controlador.enviarInput(evento),
 });
+const telaAcesso = montarTelaAcesso(window.api.senha);
 
 function renderizar(): void {
   telaInicio.atualizar(estadoSinalizacao, estadoSessao);
   telaSessao.atualizar(estadoSessao);
+  telaAcesso.atualizar(estadoSessao);
   telaVisualizacao.atualizar(estadoSessao);
 }
 

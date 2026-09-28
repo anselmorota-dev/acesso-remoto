@@ -94,10 +94,11 @@ Não tenho pressa: prefiro entender cada parte a avançar rápido.
 - **Pronto quando:** consigo usar outro computador de verdade, pela internet.
 
 ### Fase 3 — Acesso não supervisionado
-- [ ] 3.1 Definir senha no anfitrião (hash local)
-- [ ] 3.2 Conectar com senha sem precisar de aceite
-- [ ] 3.3 Iniciar com o sistema e ficar na bandeja
-- [ ] 3.4 Limite de tentativas no servidor
+- [x] 3.1 Definir senha no anfitrião (hash local)
+- [ ] 3.2 ID fixo por instalação (o servidor lembra cada instalação; exige armazenamento persistente)
+- [ ] 3.3 Conectar com senha sem precisar de aceite
+- [ ] 3.4 Iniciar com o sistema e ficar na bandeja
+- [ ] 3.5 Limite de tentativas no servidor
 
 ### Fase 4 — Recursos de produtividade
 - [ ] 4.1 Área de transferência compartilhada
@@ -116,13 +117,22 @@ Não tenho pressa: prefiro entender cada parte a avançar rápido.
 - **Render (plano gratuito):** o servidor "dorme" sem uso; a primeira conexão pode demorar alguns segundos.
 
 ## Estado atual
-Fase 1 concluída (etapas 1.1 a 1.5). Fase 2 em andamento: 2.1 a 2.4 concluídas. Próxima: 2.5
-(deploy do servidor no Render, STUN e teste entre duas redes). O usuário quer testar em outro
-notebook quando a fase 2 estiver pronta.
+Fase 1 concluída. Fase 2: 2.1 a 2.4 concluídas; 2.5 publicada e testada na mesma máquina,
+falta o teste entre duas redes (o usuário fará depois, com outro notebook). Fase 3: 3.1
+concluída. Próxima: 3.2 (ID fixo por instalação; apresentar as opções de armazenamento).
 
 Decisões já tomadas:
 - ID temporário: sorteado pelo servidor a cada conexão, guardado só em memória.
-  ID fixo por instalação (com segredo de posse + banco) fica para a fase 3.
+  ID fixo por instalação (com segredo de posse) é a etapa 3.2. O plano gratuito do Render não
+  guarda arquivos entre reinícios: precisa de banco externo gratuito ou outra solução.
+- Senha (3.1): `@node-rs/argon2` (sem script de instalação; o `crypto.argon2` do Node não funciona
+  no Electron, que usa BoringSSL), argon2id padrão da biblioteca, 64 MiB, 3 passagens (~0,3 s).
+  Mínimo 8 caracteres (escolha do usuário), máximo 128, sem regras de composição; normalizada
+  em NFC. Regras em `shared/src/senha.ts`. Cofre em `main/cofre-senha.ts` (puro, testado):
+  hash PHC em `userData/seguranca.json`, gravação atômica; arquivo inválido = sem senha.
+  Alterar/remover exige a senha atual e é bloqueado durante sessão como anfitrião (o main usa
+  o estado do indicador: `sessaoComoAnfitriao()`), para o visualizador não criar acesso para si.
+  IPC `senha:estado|definir|remover` (invoke) só da janela principal; o renderer nunca vê o hash.
 - Protocolo: app manda `registrar {versao}` → servidor responde `registrado {id}` ou `erro {codigo}`.
   Servidor desconecta quem não se registra em 10 s e usa ping/pong a cada 30 s.
 - A conexão com o servidor fica no renderer (`renderer/sinalizacao.ts`), junto do WebRTC;

@@ -13,7 +13,8 @@
   },
   "dependencies": {
     "@acesso-remoto/shared": "*",
-    "@jitsi/robotjs": "^0.6.24"
+    "@jitsi/robotjs": "^0.6.24",
+    "@node-rs/argon2": "^2.2.1"
   },
   "devDependencies": {
     "@acesso-remoto/server": "*",

@@ -7,6 +7,7 @@ import { configurarAtencao } from './atencao';
 import { configurarCaptura } from './captura';
 import { configurarIndicador } from './indicador';
 import { configurarInput } from './input';
+import { configurarSenha } from './senha';
 
 function criarJanelaPrincipal(): void {
   const janela = new BrowserWindow({
@@ -50,6 +51,7 @@ void app.whenReady().then(() => {
   configurarCaptura();
   configurarAtencao();
   configurarIndicador();
+  configurarSenha();
   configurarInput(); // antes de criar a janela: registra a limpeza ao fechá-la
   criarJanelaPrincipal();
 

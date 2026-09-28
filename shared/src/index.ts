@@ -5,3 +5,4 @@ export const PROTOCOL_VERSION = 2;
 
 export * from './mensagens.js';
 export * from './canal.js';
+export * from './senha.js';

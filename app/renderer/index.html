@@ -64,7 +64,49 @@
           <p id="aviso-conectar" class="status" aria-live="polite"></p>
         </form>
       </section>
+
+      <section class="cartao cartao-largo" aria-labelledby="titulo-acesso">
+        <h2 id="titulo-acesso">Acesso não supervisionado</h2>
+        <p id="status-senha" class="status-senha" data-definida="false">Desativado: nenhuma senha definida.</p>
+        <p class="nota">
+          Com uma senha definida, quem souber o ID e a senha deste computador poderá acessá-lo sem que
+          ninguém precise aceitar. (O acesso com senha chega nas próximas etapas.)
+        </p>
+        <div class="acoes-cartao">
+          <button id="definir-senha" type="button" class="secundario">Definir senha</button>
+          <button id="remover-senha" type="button" class="secundario" hidden>Remover senha</button>
+        </div>
+        <p id="aviso-senha" class="status" aria-live="polite"></p>
+      </section>
     </main>
+
+    <!-- Caixa da senha: definir, alterar (pede a atual) ou remover (só a atual). -->
+    <dialog id="dialogo-senha" class="dialogo" aria-labelledby="titulo-senha">
+      <form id="form-senha" novalidate>
+        <h2 id="titulo-senha">Definir senha</h2>
+        <label id="grupo-senha-atual" class="campo">
+          Senha atual
+          <input id="senha-atual" type="password" autocomplete="current-password" />
+        </label>
+        <label id="grupo-senha-nova" class="campo">
+          Nova senha
+          <input id="senha-nova" type="password" autocomplete="new-password" />
+        </label>
+        <label id="grupo-senha-confirmacao" class="campo">
+          Repita a nova senha
+          <input id="senha-confirmacao" type="password" autocomplete="new-password" />
+        </label>
+        <p id="dica-senha" class="nota">
+          Mínimo de 8 caracteres. Uma frase comprida é mais segura e mais fácil de lembrar do que uma
+          senha curta cheia de símbolos.
+        </p>
+        <p id="erro-senha" class="erro" aria-live="assertive"></p>
+        <div class="acoes">
+          <button id="cancelar-senha" type="button" class="secundario">Cancelar</button>
+          <button id="salvar-senha" type="submit">Salvar</button>
+        </div>
+      </form>
+    </dialog>
     <!-- Visualização remota: a tela do anfitrião, mostrada ao visualizador. -->
     <section id="tela-remota" class="tela-remota" aria-label="Tela do computador remoto" hidden>
       <video id="video-remoto" autoplay muted playsinline></video>

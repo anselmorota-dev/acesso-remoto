@@ -9,6 +9,9 @@ import {
   CANAL_INDICAR_SESSAO,
   CANAL_LIBERAR_INPUT,
   CANAL_PEDIDO_ENCERRAR,
+  CANAL_SENHA_DEFINIR,
+  CANAL_SENHA_ESTADO,
+  CANAL_SENHA_REMOVER,
   type ApiDoPreload,
 } from './api';
 
@@ -29,6 +32,11 @@ const api: ApiDoPreload = {
     aoPedirEncerramento: (tratar) => {
       ipcRenderer.on(CANAL_PEDIDO_ENCERRAR, () => tratar());
     },
+  },
+  senha: {
+    estado: () => ipcRenderer.invoke(CANAL_SENHA_ESTADO),
+    definir: (nova, atual) => ipcRenderer.invoke(CANAL_SENHA_DEFINIR, nova, atual),
+    remover: (atual) => ipcRenderer.invoke(CANAL_SENHA_REMOVER, atual),
   },
 };
 
