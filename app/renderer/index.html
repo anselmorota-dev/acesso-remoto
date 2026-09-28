@@ -19,8 +19,20 @@
         <!-- Aviso passageiro durante a sessão (ex.: texto copiado grande demais). -->
         <p id="nota-sessao" class="nota" hidden></p>
       </div>
+      <button id="botao-enviar-arquivos" type="button" class="secundario" hidden>Enviar arquivos</button>
       <button id="botao-sessao" type="button" class="secundario"></button>
     </section>
+
+    <!-- Arquivos enviados e recebidos na sessão (os recebidos vão para Downloads\Acesso Remoto). -->
+    <section id="painel-arquivos" class="painel-arquivos" aria-label="Transferência de arquivos" hidden>
+      <div class="cabecalho-arquivos">
+        <strong>Arquivos</strong>
+        <button id="limpar-arquivos" type="button" class="secundario pequeno" hidden>Limpar concluídos</button>
+      </div>
+      <ul id="lista-arquivos" class="lista-arquivos"></ul>
+    </section>
+    <input id="escolher-arquivos" type="file" multiple hidden />
+    <div id="soltar-arquivos" class="soltar-arquivos" hidden>Solte para enviar ao outro computador</div>
 
     <!-- Caixa de aceite: o anfitrião decide se permite o acesso. -->
     <dialog id="dialogo-pedido" class="dialogo" aria-labelledby="titulo-pedido">

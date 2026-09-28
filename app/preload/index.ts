@@ -7,6 +7,12 @@ import {
   CANAL_AREA_COPIADO,
   CANAL_AREA_ESCREVER,
   CANAL_AREA_MONITORAR,
+  CANAL_ARQUIVOS_CONCLUIR,
+  CANAL_ARQUIVOS_DESCARTAR,
+  CANAL_ARQUIVOS_FALHOU,
+  CANAL_ARQUIVOS_INICIAR,
+  CANAL_ARQUIVOS_MOSTRAR,
+  CANAL_ARQUIVOS_PEDACO,
   CANAL_BANDEJA_ESTADO,
   CANAL_CHAMAR_ATENCAO,
   CANAL_INICIO_AUTOMATICO_DEFINIR,
@@ -52,6 +58,18 @@ const api: ApiDoPreload = {
       ipcRenderer.on(CANAL_AREA_COPIADO, (_evento, texto: unknown) => tratar(typeof texto === 'string' ? texto : null));
     },
     escrever: (texto) => ipcRenderer.send(CANAL_AREA_ESCREVER, texto),
+  },
+  arquivos: {
+    iniciar: (nome, tamanho) => ipcRenderer.invoke(CANAL_ARQUIVOS_INICIAR, nome, tamanho),
+    gravar: (token, pedaco) => ipcRenderer.send(CANAL_ARQUIVOS_PEDACO, token, pedaco),
+    concluir: (token) => ipcRenderer.invoke(CANAL_ARQUIVOS_CONCLUIR, token),
+    descartar: (token) => ipcRenderer.send(CANAL_ARQUIVOS_DESCARTAR, token),
+    mostrar: (token) => ipcRenderer.send(CANAL_ARQUIVOS_MOSTRAR, token),
+    aoFalhar: (tratar) => {
+      ipcRenderer.on(CANAL_ARQUIVOS_FALHOU, (_evento, token: unknown) => {
+        if (typeof token === 'string') tratar(token);
+      });
+    },
   },
   bandeja: {
     atualizar: (estado) => ipcRenderer.send(CANAL_BANDEJA_ESTADO, estado),

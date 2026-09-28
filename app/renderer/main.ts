@@ -3,10 +3,12 @@
 // e as telas são redesenhadas a partir dos dois estados.
 import { PROTOCOL_VERSION } from '@acesso-remoto/shared';
 import { tocarSomPedido } from './alerta';
+import { GerenciadorArquivos } from './arquivos';
 import { ConexaoPar } from './par';
 import { ControladorSessao, caixaDeAceiteAberta, parceiroControlando, type EstadoSessao } from './sessao';
 import { ClienteSinalizacao, type EstadoSinalizacao } from './sinalizacao';
 import { montarTelaAcesso } from './telas/acesso';
+import { montarTelaArquivos } from './telas/arquivos';
 import { montarTelaInicio } from './telas/inicio';
 import { montarTelaSessao } from './telas/sessao';
 import { montarTelaVisualizacao } from './telas/visualizacao';
@@ -29,6 +31,20 @@ const telaVisualizacao = montarTelaVisualizacao({
   aoInput: (evento) => controlador.enviarInput(evento),
 });
 const telaAcesso = montarTelaAcesso({ senha: window.api.senha, inicioAutomatico: window.api.inicioAutomatico });
+
+// Transferência de arquivos: os dois lados enviam; os recebidos são gravados
+// pelo main em Downloads\Acesso Remoto.
+const arquivos = new GerenciadorArquivos({
+  gravador: window.api.arquivos,
+  aoMudar: (lista) => telaArquivos.atualizar(lista, arquivos.podeEnviar),
+});
+const telaArquivos = montarTelaArquivos({
+  aoEnviar: (lista) => arquivos.enviar(lista),
+  aoCancelar: (chave) => arquivos.cancelar(chave),
+  aoMostrar: (token) => window.api.arquivos.mostrar(token),
+  aoLimpar: () => arquivos.limpar(),
+});
+window.api.arquivos.aoFalhar((token) => arquivos.falhaNaGravacao(token));
 
 function renderizar(): void {
   telaInicio.atualizar(estadoSinalizacao, estadoSessao);
@@ -93,6 +109,9 @@ const controlador = new ControladorSessao({
   tentarSenha: (senha) => window.api.senha.tentar(senha),
   verificarServidor: () => sinalizacao.verificarConexao(),
   aoReceberAreaTransferencia: (texto) => window.api.areaTransferencia.escrever(texto),
+  // Canal de arquivos: só com a sessão liberada (o controlador decide).
+  aoMudarCanalArquivos: (canal) => arquivos.definirCanal(canal),
+  aoMensagemArquivos: (dados) => arquivos.receber(dados),
 });
 
 // Texto copiado neste computador durante a sessão: vai para o outro.

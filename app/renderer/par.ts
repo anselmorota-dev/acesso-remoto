@@ -15,6 +15,8 @@
 // anfitrião então renegocia os caminhos de rede (ICE restart: nova oferta
 // pelo servidor) sem desfazer a sessão, o canal nem a criptografia.
 import {
+  PEDACO_ARQUIVO,
+  TAMANHO_MAXIMO_CONTROLE_ARQUIVOS,
   TAMANHO_MAXIMO_MENSAGEM_CANAL,
   decodificarMensagem,
   esquemaMensagemCanal,
@@ -25,6 +27,7 @@ import {
   type Sinal,
 } from '@acesso-remoto/shared';
 import { serializarAreaTransferencia } from './area-transferencia';
+import type { CanalArquivos } from './arquivos';
 import { capturarTela } from './captura';
 
 export type EstadoPar = 'conectando' | 'conectado' | 'falhou' | 'fechado';
@@ -49,6 +52,10 @@ export interface OpcoesPar {
   aoPerderCanal?: () => void;
   /** O outro lado copiou um texto (área de transferência compartilhada; já validado). */
   aoReceberAreaTransferencia?: (texto: string) => void;
+  /** O canal de arquivos abriu (pronto para enviar e receber) ou fechou (null). */
+  aoMudarCanalArquivos?: (canal: CanalArquivos | null) => void;
+  /** Mensagem do canal de arquivos (tamanho já limitado; o conteúdo é validado por quem trata). */
+  aoMensagemArquivos?: (dados: string | ArrayBuffer) => void;
 }
 
 /** O que o controlador de sessão precisa de uma conexão (permite trocar por um falso nos testes). */
@@ -96,6 +103,8 @@ export class ConexaoPar implements Par {
   private readonly opcoes: OpcoesPar;
   private readonly pc: RTCPeerConnection;
   private canal: RTCDataChannel | null = null;
+  /** Canal só dos arquivos: um arquivo grande nunca atrasa mouse e teclado. */
+  private canalArquivos: RTCDataChannel | null = null;
   private timerPing: ReturnType<typeof setInterval> | undefined;
   /** Candidatos que chegaram antes da descrição remota; aplicados depois. */
   private candidatosPendentes: RTCIceCandidateInit[] = [];
@@ -145,11 +154,17 @@ export class ConexaoPar implements Par {
       }
     });
 
-    // Quem cria a oferta cria o canal; o outro lado o recebe pronto.
+    // Quem cria a oferta cria os canais; o outro lado os recebe prontos.
     if (opcoes.papel === 'anfitriao') {
       this.prepararCanal(this.pc.createDataChannel('controle'));
+      this.prepararCanalArquivos(this.pc.createDataChannel('arquivos'));
     } else {
-      this.pc.addEventListener('datachannel', (evento) => this.prepararCanal(evento.channel));
+      this.pc.addEventListener('datachannel', (evento) => {
+        // Só os canais que o app conhece; qualquer outro é fechado.
+        if (evento.channel.label === 'controle' && !this.canal) this.prepararCanal(evento.channel);
+        else if (evento.channel.label === 'arquivos' && !this.canalArquivos) this.prepararCanalArquivos(evento.channel);
+        else evento.channel.close();
+      });
       this.pc.addEventListener('track', (evento) => {
         opcoes.aoReceberVideo?.(evento.streams[0] ?? new MediaStream([evento.track]));
       });
@@ -271,7 +286,58 @@ export class ConexaoPar implements Par {
 
   private fecharConexao(): void {
     this.canal?.close();
+    this.canalArquivos?.close();
     this.pc.close();
+  }
+
+  private prepararCanalArquivos(canal: RTCDataChannel): void {
+    this.canalArquivos = canal;
+    canal.binaryType = 'arraybuffer'; // pedaços chegam como ArrayBuffer (não Blob)
+    // Uma espera por vez: quem espera de novo (com o mesmo limite) reaproveita
+    // a pendente, sem acumular ouvintes no canal.
+    let espera: { limite: number; promessa: Promise<void> } | null = null;
+    const adaptador: CanalArquivos = {
+      enviar: (dados) => {
+        if (canal.readyState !== 'open') return;
+        if (typeof dados === 'string') canal.send(dados);
+        else canal.send(dados);
+      },
+      fila: () => canal.bufferedAmount,
+      esperarFila: (limite) => {
+        if (canal.bufferedAmount <= limite || canal.readyState !== 'open') return Promise.resolve();
+        if (espera?.limite === limite) return espera.promessa;
+        canal.bufferedAmountLowThreshold = limite;
+        const promessa = new Promise<void>((resolve) => {
+          const pronto = () => {
+            canal.removeEventListener('bufferedamountlow', pronto);
+            canal.removeEventListener('close', pronto);
+            if (espera?.promessa === promessa) espera = null;
+            resolve();
+          };
+          canal.addEventListener('bufferedamountlow', pronto);
+          canal.addEventListener('close', pronto);
+        });
+        espera = { limite, promessa };
+        return promessa;
+      },
+    };
+    canal.addEventListener('open', () => {
+      if (this.estado !== 'fechado') this.opcoes.aoMudarCanalArquivos?.(adaptador);
+    });
+    canal.addEventListener('close', () => this.opcoes.aoMudarCanalArquivos?.(null));
+    canal.addEventListener('message', (evento) => {
+      if (this.estado === 'fechado') return;
+      const dados: unknown = evento.data;
+      // Regra de segurança: tamanho limitado antes de qualquer coisa (o
+      // conteúdo é validado pelo gerenciador de arquivos).
+      if (typeof dados === 'string' && dados.length <= TAMANHO_MAXIMO_CONTROLE_ARQUIVOS) {
+        this.opcoes.aoMensagemArquivos?.(dados);
+      } else if (dados instanceof ArrayBuffer && dados.byteLength <= PEDACO_ARQUIVO) {
+        this.opcoes.aoMensagemArquivos?.(dados);
+      } else {
+        console.warn('[par] mensagem inválida no canal de arquivos, ignorada');
+      }
+    });
   }
 
   private mudarEstado(estado: EstadoPar): void {

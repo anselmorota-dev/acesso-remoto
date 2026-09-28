@@ -26,6 +26,7 @@ import type {
   MotivoRecusa,
   Papel,
 } from '@acesso-remoto/shared';
+import type { CanalArquivos } from './arquivos';
 import { ErroCaptura } from './captura';
 import type { EstadoPar, OpcoesPar, Par } from './par';
 import type { MensagemRecebida } from './sinalizacao';
@@ -91,6 +92,13 @@ export interface OpcoesControlador {
   aoLiberarInput?: () => void;
   /** O outro computador copiou um texto: escrever na área de transferência daqui. */
   aoReceberAreaTransferencia?: (texto: string) => void;
+  /**
+   * Canal de arquivos da sessão, só com ela liberada (aceite ou senha
+   * conferida); null quando não há (sem sessão, ainda travada ou encerrada).
+   */
+  aoMudarCanalArquivos?: (canal: CanalArquivos | null) => void;
+  /** Mensagem do canal de arquivos (só da conexão atual e com a sessão liberada). */
+  aoMensagemArquivos?: (dados: string | ArrayBuffer) => void;
   /** Anfitrião: há senha de acesso não supervisionado definida? */
   senhaDefinida?: () => Promise<boolean>;
   /** Anfitrião: confere a senha recebida (com limite de tentativas). */
@@ -166,6 +174,9 @@ export class ControladorSessao {
   private timerDesistir: ReturnType<typeof setTimeout> | undefined;
   private timerReinicioIce: ReturnType<typeof setInterval> | undefined;
   private timerCanalPerdido: ReturnType<typeof setTimeout> | undefined;
+  /** Canal de arquivos do par atual (aberto), e o que foi entregue por último a quem usa. */
+  private canalArquivos: CanalArquivos | null = null;
+  private canalArquivosEntregue: CanalArquivos | null = null;
 
   constructor(opcoes: OpcoesControlador) {
     this.opcoes = opcoes;
@@ -420,6 +431,17 @@ export class ControladorSessao {
           this.opcoes.aoReceberAreaTransferencia?.(texto);
         }
       },
+      aoMudarCanalArquivos: (canal) => {
+        if (this.par !== par) return;
+        this.canalArquivos = canal;
+        this.entregarCanalArquivos();
+      },
+      aoMensagemArquivos: (dados) => {
+        const estado = this.estadoAtual;
+        if (this.par === par && estado.fase === 'em_sessao' && estado.liberada) {
+          this.opcoes.aoMensagemArquivos?.(dados);
+        }
+      },
       aoReceberSenha: (senhaRecebida) => {
         if (this.par === par) void this.conferirSenha(par, senhaRecebida);
       },
@@ -595,6 +617,7 @@ export class ControladorSessao {
     this.conferindoSenha = false;
     this.jaConectou = false;
     this.ligadoNoServidor = false;
+    this.canalArquivos = null;
     const par = this.par;
     if (!par) return;
     this.par = null; // antes de fechar, para ignorar os eventos que o fechamento dispara
@@ -610,5 +633,15 @@ export class ControladorSessao {
     if (estado.fase === 'livre') this.senhaParaEnviar = null;
     this.estadoAtual = estado;
     this.opcoes.aoMudarEstado(estado);
+    this.entregarCanalArquivos(); // a liberação (ou o fim) da sessão muda quem pode usar o canal
+  }
+
+  /** Entrega o canal de arquivos só com a sessão liberada (e avisa quando deixa de valer). */
+  private entregarCanalArquivos(): void {
+    const estado = this.estadoAtual;
+    const canal = estado.fase === 'em_sessao' && estado.liberada ? this.canalArquivos : null;
+    if (canal === this.canalArquivosEntregue) return;
+    this.canalArquivosEntregue = canal;
+    this.opcoes.aoMudarCanalArquivos?.(canal);
   }
 }

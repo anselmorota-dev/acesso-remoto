@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { app, BrowserWindow, Menu } from 'electron';
 import { PROTOCOL_VERSION } from '@acesso-remoto/shared';
 import { configurarAreaTransferencia } from './area-transferencia';
+import { configurarArquivos } from './arquivos';
 import { configurarAtencao } from './atencao';
 import { ARGUMENTO_OCULTO, avisarQueContinuaNaBandeja, configurarBandeja } from './bandeja';
 import { configurarCaptura } from './captura';
@@ -98,6 +99,7 @@ if (!app.requestSingleInstanceLock()) {
     configurarIndicador();
     configurarEnergia();
     configurarAreaTransferencia();
+    configurarArquivos();
     configurarIdentidade();
     configurarSenha();
     configurarInput(); // antes de criar a janela: registra a limpeza ao fechá-la

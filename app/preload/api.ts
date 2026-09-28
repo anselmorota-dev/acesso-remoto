@@ -21,6 +21,17 @@ export const CANAL_AREA_MONITORAR = 'area:monitorar';
 export const CANAL_AREA_COPIADO = 'area:copiado';
 /** renderer → main: escreve o texto que veio do outro computador. */
 export const CANAL_AREA_ESCREVER = 'area:escrever';
+/** Arquivos recebidos (gravados pelo main em Downloads\Acesso Remoto). */
+export const CANAL_ARQUIVOS_INICIAR = 'arquivos:iniciar';
+export const CANAL_ARQUIVOS_PEDACO = 'arquivos:pedaco';
+export const CANAL_ARQUIVOS_CONCLUIR = 'arquivos:concluir';
+export const CANAL_ARQUIVOS_DESCARTAR = 'arquivos:descartar';
+export const CANAL_ARQUIVOS_MOSTRAR = 'arquivos:mostrar';
+/** main → renderer: a gravação de um arquivo falhou (ex.: disco cheio). */
+export const CANAL_ARQUIVOS_FALHOU = 'arquivos:falhou';
+
+/** Resultado de terminar de receber um arquivo. */
+export type ConclusaoArquivo = { ok: true; nome: string } | { ok: false; erro: 'tamanho' | 'disco' };
 /** Canais IPC renderer ⇄ main (com resposta) da senha de acesso não supervisionado. */
 export const CANAL_SENHA_ESTADO = 'senha:estado';
 export const CANAL_SENHA_DEFINIR = 'senha:definir';
@@ -78,6 +89,22 @@ export interface ApiDoPreload {
     aoCopiar(tratar: (texto: string | null) => void): void;
     /** Escreve o texto que veio do outro computador. */
     escrever(texto: string): void;
+  };
+  /**
+   * Arquivos recebidos do outro computador: o main grava em
+   * Downloads\Acesso Remoto (nome e pasta decididos lá; nada é aberto sozinho).
+   */
+  readonly arquivos: {
+    /** Começa a gravar; devolve um token (ou null se não deu para criar o arquivo). */
+    iniciar(nome: string, tamanho: number): Promise<string | null>;
+    gravar(token: string, pedaco: Uint8Array): void;
+    concluir(token: string): Promise<ConclusaoArquivo>;
+    /** Abandona (cancelado, sessão encerrada): apaga o parcial. */
+    descartar(token: string): void;
+    /** Abre a pasta com o arquivo recebido selecionado. */
+    mostrar(token: string): void;
+    /** Registra quem trata uma falha de gravação (disco cheio...). */
+    aoFalhar(tratar: (token: string) => void): void;
   };
   /** Ícone da bandeja: a janela principal informa o ID e quem está controlando. */
   readonly bandeja: {

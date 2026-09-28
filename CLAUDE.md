@@ -105,7 +105,7 @@ Não tenho pressa: prefiro entender cada parte a avançar rápido.
 ### Fase 4 — Recursos de produtividade
 - [x] 4.1 Sessões longas: sem limite de tempo, sobrevivem a quedas do servidor e da rede
 - [x] 4.2 Área de transferência compartilhada
-- [ ] 4.3 Transferência de arquivos pelo DataChannel (com progresso)
+- [x] 4.3 Transferência de arquivos pelo DataChannel (com progresso)
 - [ ] 4.4 Chat simples durante a sessão
 
 ### Fase 5 — Robustez
@@ -122,11 +122,36 @@ Não tenho pressa: prefiro entender cada parte a avançar rápido.
 ## Estado atual
 Fase 1 concluída. Fase 2: 2.1 a 2.4 concluídas; 2.5 publicada e testada na mesma máquina,
 falta o teste entre duas redes (o usuário fará depois, com outro notebook). Fase 3 concluída
-(28/09/2026). Fase 4: 4.1 (sessões longas) e 4.2 (área de transferência, protocolo v7)
-concluídas. Próxima: 4.3 (transferência de arquivos). Pendente do usuário: teste real entre
-duas redes (2.5).
+(28/09/2026). Fase 4: 4.1 (sessões longas), 4.2 (área de transferência) e 4.3 (arquivos,
+protocolo v8) concluídas. Próxima: 4.4 (chat). Pendente do usuário: teste real entre duas
+redes (2.5).
 
 Decisões já tomadas:
+- Arquivos (4.3, protocolo v8; escolhas do usuário: os dois lados enviam, recebidos vão para
+  Downloads\Acesso Remoto sem perguntar). Segundo DataChannel "arquivos" (criado pelo
+  anfitrião antes da oferta; o visualizador só aceita os rótulos "controle" e "arquivos"),
+  para um arquivo grande nunca atrasar mouse/teclado. Protocolo em `shared/src/arquivos.ts`:
+  `arquivo_inicio {id, nome, tamanho}` → pedaços binários de 64 KiB → `arquivo_fim` →
+  `arquivo_recebido` | `arquivo_erro {motivo}`; `arquivo_cancelar` dos dois lados. Um
+  arquivo por vez em cada sentido (fila). Só com a sessão liberada (o controlador entrega o
+  canal, `aoMudarCanalArquivos`, e filtra as mensagens). `renderer/arquivos.ts`
+  (GerenciadorArquivos, testado com dois lados ligados por um canal falso com velocidade
+  simulada): fila do canal limitada a 1 MB (volta a encher em 256 KB) e o "fim" só vai
+  quando a fila esvazia — até lá o Cancelar vale (antes, com 4 MB, um arquivo de 3 MB ia
+  todo para a fila e o cancelamento chegava depois do arquivo completo). Quem recebe confere
+  o tamanho (mais bytes que o anunciado, pedaço > 64 KiB ou "inicio" sem "fim" = abandona e
+  avisa). Main: `recebimentos.ts` grava em `.<token>.parcial` e só renomeia quando chega
+  inteiro (espera o arquivo FECHAR: o Windows não renomeia arquivo aberto); nunca
+  sobrescreve ("foto (2).jpg"); `nome-arquivo.ts` limpa o nome (descarta caminhos,
+  caracteres proibidos, nomes reservados CON/NUL/COM1..., pontos no fim, 150 caracteres).
+  O renderer nunca escolhe pasta nem caminho; "Mostrar na pasta" usa o token (o caminho fica
+  no main). Parciais apagados ao cancelar, ao fim da sessão e se a janela fechar/travar.
+  Interface: botão "Enviar arquivos" no painel da sessão, arrastar e soltar na janela, lista
+  com progresso/velocidade (itens atualizados no lugar, não recriados). Pastas: não (só
+  arquivos, vários de uma vez). Sem hash: DTLS + SCTP confiável já garantem integridade.
+- Velocidade (medida em 28/09/2026, nesta máquina: i3-7020U, 2 núcleos): DataChannel puro
+  7–8 MB/s; o app com dois apps + vídeo na mesma máquina, ~4,5 MB/s. O gargalo é o SCTP do
+  Chromium nesta CPU (fila de 4 MB não mudou o resultado no app).
 - Área de transferência (4.2, protocolo v7): só texto (imagens podem vir com a 4.3),
   automática nos dois sentidos (escolhas do usuário). Só com a sessão liberada (aceite ou
   senha conferida), nos dois papéis. No início da sessão só o visualizador manda o que já
@@ -323,6 +348,10 @@ Notas para as próximas etapas:
 - robotjs: o npm desta máquina bloqueia scripts de instalação (`install: node-gyp-build`); não
   faz falta porque o binário win32-x64 vem pronto. Na 5.4 (instalador) o `.node` precisa ficar
   fora do asar (`asarUnpack`). O mesmo vale para a koffi (4.2).
+- Teste E2E de arquivos: `DOM.setFileInputFiles` no `#escolher-arquivos` simula o botão;
+  `Input.dispatchDragEvent` (dragEnter/dragOver/drop com `files`) simula arrastar. Os dois
+  apps gravam na MESMA Downloads\Acesso Remoto: nomes diferentes por sentido, e apagar só o
+  que o teste criou.
 - Teste E2E da área de transferência: na mesma máquina os dois apps veem a MESMA área do
   Windows (o teste confere o caminho, limites e ausência de eco; o "copiar num e colar no
   outro" de verdade fica para o teste entre dois computadores). O script altera a área do

@@ -9,6 +9,7 @@ import { InstalacoesEmMemoria } from '@acesso-remoto/server/instalacoes';
 import { iniciarServidor, type ServidorSinalizacao } from '@acesso-remoto/server/servidor';
 import type { EventoInput, Sinal } from '@acesso-remoto/shared';
 import { ErroCaptura } from './captura';
+import type { CanalArquivos } from './arquivos';
 import type { OpcoesPar, Par } from './par';
 import { ControladorSessao, caixaDeAceiteAberta, parceiroControlando, type EstadoSessao } from './sessao';
 import { ClienteSinalizacao } from './sinalizacao';
@@ -118,6 +119,8 @@ async function criarApp(opcoesApp: OpcoesApp = {}) {
   const videos: Array<MediaStream | null> = [];
   const inputs: EventoInput[] = [];
   const areaRecebida: string[] = [];
+  const canaisArquivos: Array<CanalArquivos | null> = [];
+  const mensagensArquivos: Array<string | ArrayBuffer> = [];
   let liberacoes = 0;
   let verificacoesServidor = 0;
   let id = '';
@@ -152,6 +155,8 @@ async function criarApp(opcoesApp: OpcoesApp = {}) {
     aoReceberInput: (evento) => inputs.push(evento),
     aoLiberarInput: () => liberacoes++,
     aoReceberAreaTransferencia: (texto) => areaRecebida.push(texto),
+    aoMudarCanalArquivos: (canal) => canaisArquivos.push(canal),
+    aoMensagemArquivos: (dados) => mensagensArquivos.push(dados),
     senhaDefinida: async () => opcoesApp.senhaDefinida ?? false,
     tentarSenha: async (senha) => {
       if (opcoesApp.bloqueado) return 'bloqueada';
@@ -178,6 +183,8 @@ async function criarApp(opcoesApp: OpcoesApp = {}) {
     videos,
     inputs,
     areaRecebida,
+    canaisArquivos,
+    mensagensArquivos,
     liberacoes: () => liberacoes,
     verificacoesServidor: () => verificacoesServidor,
     id: () => id,
@@ -700,4 +707,42 @@ test('área de transferência: texto que chega por uma conexão antiga é ignora
   anfitriao.controlador.encerrar();
   parA.opcoes.aoReceberAreaTransferencia?.('atrasado');
   assert.deepEqual(anfitriao.areaRecebida, []);
+});
+
+// ---------------------------------------------------------------------------
+// Transferência de arquivos (4.3): o canal só vale com a sessão liberada
+// ---------------------------------------------------------------------------
+
+const canalFalso = (): CanalArquivos => ({ enviar: () => {}, fila: () => 0, esperarFila: async () => {} });
+
+test('arquivos: o canal é entregue com a sessão liberada e retirado ao encerrar', async () => {
+  const { anfitriao, parA } = await sessaoConectada();
+  const canal = canalFalso();
+  parA.opcoes.aoMudarCanalArquivos?.(canal);
+  assert.deepEqual(anfitriao.canaisArquivos, [canal]);
+  parA.opcoes.aoMensagemArquivos?.('{"tipo":"arquivo_fim","id":1}');
+  assert.equal(anfitriao.mensagensArquivos.length, 1);
+
+  anfitriao.controlador.encerrar();
+  assert.deepEqual(anfitriao.canaisArquivos, [canal, null]);
+  // Conexão antiga: nada mais passa.
+  parA.opcoes.aoMensagemArquivos?.('{"tipo":"arquivo_fim","id":2}');
+  assert.equal(anfitriao.mensagensArquivos.length, 1);
+});
+
+test('arquivos: na sessão por senha, nada antes de a senha conferir', async () => {
+  const { visualizador, anfitriao, parV, parA } = await sessaoComSenha({ senhaDefinida: true, senhaCerta: SENHA });
+  const canalA = canalFalso();
+  parA.opcoes.aoMudarCanalArquivos?.(canalA);
+  parV.opcoes.aoMudarCanalArquivos?.(canalFalso());
+  parA.opcoes.aoMensagemArquivos?.(new ArrayBuffer(8)); // tentando mandar arquivo antes da senha
+  assert.deepEqual(anfitriao.canaisArquivos, []);
+  assert.deepEqual(anfitriao.mensagensArquivos, []);
+  assert.deepEqual(visualizador.canaisArquivos, []);
+
+  parA.opcoes.aoReceberSenha?.(SENHA);
+  await aguardar(() => liberada(anfitriao));
+  assert.deepEqual(anfitriao.canaisArquivos, [canalA]);
+  parV.opcoes.aoAutenticado?.();
+  assert.equal(visualizador.canaisArquivos.length, 1);
 });
