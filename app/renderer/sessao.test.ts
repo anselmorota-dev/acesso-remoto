@@ -134,11 +134,14 @@ test('pedido aceito: os dois entram em sessão e trocam oferta/resposta', async 
 test('a caixa de aceite só aparece para o anfitrião; o visualizador aguarda', async () => {
   const visualizador = await criarApp();
   const anfitriao = await criarApp();
+  const antes = Date.now();
   visualizador.controlador.conectar(anfitriao.id());
   assert.equal(fase(visualizador), 'pedindo');
   await aguardar(() => fase(anfitriao) === 'pedido_recebido');
   const estado = anfitriao.controlador.estado;
   assert.ok(estado.fase === 'pedido_recebido' && estado.origem === visualizador.id());
+  // O prazo informado pelo servidor (5 s nestes testes) vira um instante de expiração.
+  assert.ok(estado.expiraEm >= antes + 5000 && estado.expiraEm <= Date.now() + 5000);
   // Nenhuma conexão WebRTC é criada antes do aceite.
   assert.equal(visualizador.pares.length + anfitriao.pares.length, 0);
 });

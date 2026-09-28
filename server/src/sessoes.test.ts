@@ -27,10 +27,10 @@ const ice: Sinal = {
   candidato: { candidate: 'candidate:1 1 udp 1 127.0.0.1 5000 typ host', sdpMid: '0', sdpMLineIndex: 0 },
 };
 
-/** Visualizador pede, anfitrião recebe o pedido. */
-async function pedir(visualizador: Registrado, anfitriao: Registrado): Promise<void> {
+/** Visualizador pede, anfitrião recebe o pedido (com o prazo configurado no servidor). */
+async function pedir(visualizador: Registrado, anfitriao: Registrado, prazoMs = 30_000): Promise<void> {
   visualizador.enviar({ tipo: 'conectar', destino: anfitriao.id });
-  assert.deepEqual(await anfitriao.proxima(), { tipo: 'pedido_conexao', origem: visualizador.id });
+  assert.deepEqual(await anfitriao.proxima(), { tipo: 'pedido_conexao', origem: visualizador.id, prazoMs });
 }
 
 /** Leva os dois até uma sessão iniciada. */
@@ -158,7 +158,7 @@ test('pedido expira se o anfitrião não responder a tempo', async () => {
   await subir({ prazoRespostaPedidoMs: 100 });
   const visualizador = await registrado();
   const anfitriao = await registrado();
-  await pedir(visualizador, anfitriao);
+  await pedir(visualizador, anfitriao, 100);
 
   assert.deepEqual(await visualizador.proxima(), {
     tipo: 'pedido_recusado',

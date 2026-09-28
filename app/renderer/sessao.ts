@@ -19,8 +19,11 @@ export type EstadoSessao =
   | { fase: 'livre'; aviso?: string }
   /** Visualizador aguardando o anfitrião aceitar. */
   | { fase: 'pedindo'; destino: IdCliente }
-  /** Anfitrião precisa decidir se aceita. */
-  | { fase: 'pedido_recebido'; origem: IdCliente; respondendo: boolean }
+  /**
+   * Anfitrião precisa decidir se aceita. "expiraEm" (ms, relógio local) é
+   * quando o servidor vai cancelar o pedido; serve só para a contagem na tela.
+   */
+  | { fase: 'pedido_recebido'; origem: IdCliente; expiraEm: number; respondendo: boolean }
   | {
       fase: 'em_sessao';
       parceiro: IdCliente;
@@ -124,7 +127,12 @@ export class ControladorSessao {
     switch (mensagem.tipo) {
       case 'pedido_conexao':
         if (estado.fase === 'livre') {
-          this.mudar({ fase: 'pedido_recebido', origem: mensagem.origem, respondendo: false });
+          this.mudar({
+            fase: 'pedido_recebido',
+            origem: mensagem.origem,
+            expiraEm: Date.now() + mensagem.prazoMs,
+            respondendo: false,
+          });
         }
         return;
 

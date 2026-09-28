@@ -208,6 +208,10 @@ button:disabled {
   color: var(--texto-suave);
 }
 
+.prazo {
+  font-variant-numeric: tabular-nums;
+}
+
 .acoes {
   display: flex;
   justify-content: flex-end;

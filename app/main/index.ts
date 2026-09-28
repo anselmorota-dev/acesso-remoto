@@ -3,6 +3,7 @@
 import { join } from 'node:path';
 import { app, BrowserWindow } from 'electron';
 import { PROTOCOL_VERSION } from '@acesso-remoto/shared';
+import { configurarAtencao } from './atencao';
 import { configurarCaptura } from './captura';
 
 function criarJanelaPrincipal(): void {
@@ -42,6 +43,7 @@ function criarJanelaPrincipal(): void {
 void app.whenReady().then(() => {
   console.log(`[main] app pronto (protocolo v${PROTOCOL_VERSION})`);
   configurarCaptura();
+  configurarAtencao();
   criarJanelaPrincipal();
 
   // macOS: recria a janela ao clicar no ícone do dock se nenhuma estiver aberta.

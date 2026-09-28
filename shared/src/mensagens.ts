@@ -118,8 +118,16 @@ export const esquemaMensagemDoServidor = z.discriminatedUnion('tipo', [
   /** Resposta ao "registrar": o ID que este app vai usar enquanto estiver conectado. */
   z.object({ tipo: z.literal('registrado'), id: esquemaId }),
   z.object({ tipo: z.literal('erro'), codigo: esquemaCodigoErro, mensagem: z.string() }),
-  /** Para o anfitrião: alguém quer acessar este computador. */
-  z.object({ tipo: z.literal('pedido_conexao'), origem: esquemaId }),
+  /**
+   * Para o anfitrião: alguém quer acessar este computador. "prazoMs" é quanto
+   * tempo ele tem para responder antes de o servidor cancelar o pedido
+   * (usado para mostrar a contagem regressiva; quem decide é o servidor).
+   */
+  z.object({
+    tipo: z.literal('pedido_conexao'),
+    origem: esquemaId,
+    prazoMs: z.number().int().positive().max(5 * 60_000),
+  }),
   /** Para o anfitrião: quem pediu desistiu (cancelou, caiu ou o prazo acabou). */
   z.object({ tipo: z.literal('pedido_cancelado'), origem: esquemaId }),
   /** Para o visualizador: o pedido não foi aceito. */

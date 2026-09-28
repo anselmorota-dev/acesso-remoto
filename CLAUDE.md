@@ -81,8 +81,7 @@ Não tenho pressa: prefiro entender cada parte a avançar rápido.
 - **Pronto quando:** duas instâncias (mesma máquina ou rede) se veem. ✅ concluída em 27/09/2026
 
 ### Fase 2 — Controlar
-- [ ] 2.1 Popup Aceitar/Recusar no anfitrião (o aceite básico já existe desde a 1.4; falta
-  trazer a janela para frente, contagem regressiva, som)
+- [x] 2.1 Popup Aceitar/Recusar no anfitrião (janela vem para frente, contagem regressiva, som)
 - [ ] 2.2 DataChannel com eventos de mouse (mover, clicar, rolar)
 - [ ] 2.3 Teclado, incluindo atalhos (Ctrl, Alt, Shift) e caracteres com acento
 - [ ] 2.4 Encerrar sessão pelos dois lados; indicador de sessão ativa
@@ -112,7 +111,8 @@ Não tenho pressa: prefiro entender cada parte a avançar rápido.
 - **Render (plano gratuito):** o servidor "dorme" sem uso; a primeira conexão pode demorar alguns segundos.
 
 ## Estado atual
-Fase 1 concluída (etapas 1.1 a 1.5). Próxima: 2.1 (acabamento do popup de aceite).
+Fase 1 concluída (etapas 1.1 a 1.5). Fase 2 em andamento: 2.1 concluída. Próxima: 2.2
+(eventos de mouse pelo DataChannel; começa escolhendo entre robotjs e nut-js).
 
 Decisões já tomadas:
 - ID temporário: sorteado pelo servidor a cada conexão, guardado só em memória.
@@ -126,6 +126,12 @@ Decisões já tomadas:
 - Sessões no servidor (`server/src/sessoes.ts`): conectar → pedido_conexao → responder_pedido
   → sessao_iniciada (para os dois). Só depois disso o servidor repassa `sinal` entre o par;
   pedido expira em 30 s; um pedido/sessão por vez de cada lado; queda avisa o parceiro.
+- Pedido de acesso (2.1): `pedido_conexao` traz `prazoMs` (protocolo v2); o servidor é a única
+  fonte do prazo, o app só mostra a contagem (`expiraEm` no estado). Ao chegar um pedido, o
+  renderer chama `window.api.chamarAtencao()` (IPC `janela:chamar-atencao`, só aceito do quadro
+  principal das nossas janelas, ver `main/quadros.ts`): o main restaura, mostra, foca e, se o
+  Windows barrar o foco, pisca na barra de tarefas. Som: "ding-dong" por Web Audio
+  (`renderer/alerta.ts`), sem arquivo.
 - WebRTC (`renderer/par.ts`): o anfitrião cria a oferta e o DataChannel "controle"; trickle
   ICE com fila de candidatos que chegam antes da descrição remota. Ping/pong pelo canal mede
   a latência. Mensagens do canal validadas com Zod (`shared/src/canal.ts`), máx. 16 KB.
@@ -158,3 +164,5 @@ Notas para as próximas etapas:
 - Teste com duas instâncias: `npm run build -w @acesso-remoto/app` e abrir
   `node_modules/electron/dist/electron.exe .` (em app/) duas vezes, cada uma com
   `--user-data-dir` próprio e `--remote-debugging-port` para conduzir pelo DevTools Protocol.
+  O Electron não implementa o domínio `Browser` do CDP (minimizar/estado da janela): usar a
+  user32 (`ShowWindow`, `IsIconic`) via `powershell -EncodedCommand` com o PID do processo.

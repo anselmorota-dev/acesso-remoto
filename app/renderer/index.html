@@ -23,6 +23,8 @@
       <h2 id="titulo-pedido">Pedido de acesso</h2>
       <p>O computador <strong id="origem-pedido" class="id-inline"></strong> quer acessar este computador.</p>
       <p class="nota">Só aceite se você conhece e confia em quem está pedindo.</p>
+      <!-- Contagem regressiva; aria-live desligado para o leitor de tela não anunciar cada segundo. -->
+      <p id="prazo-pedido" class="nota prazo" aria-live="off"></p>
       <div class="acoes">
         <!-- O foco começa em Recusar: um Enter acidental não libera o acesso. -->
         <button id="recusar-pedido" type="button" class="secundario" autofocus>Recusar</button>

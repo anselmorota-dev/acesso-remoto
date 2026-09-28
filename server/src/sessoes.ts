@@ -62,7 +62,7 @@ export function criarGerenciadorSessoes(opcoes: OpcoesSessoes) {
 
     visualizador.vinculo = { tipo: 'pedindo', anfitriao, prazo };
     anfitriao.vinculo = { tipo: 'pedido_recebido', visualizador };
-    enviar(anfitriao, { tipo: 'pedido_conexao', origem: visualizador.id });
+    enviar(anfitriao, { tipo: 'pedido_conexao', origem: visualizador.id, prazoMs: prazoRespostaMs });
     log(`[server] pedido ${visualizador.id} → ${destino}`);
   }
 

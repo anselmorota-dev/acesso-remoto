@@ -2,6 +2,7 @@
 // controlador de sessão e as telas. Cada parte avisa quando seu estado muda
 // e as telas são redesenhadas a partir dos dois estados.
 import { PROTOCOL_VERSION } from '@acesso-remoto/shared';
+import { tocarSomPedido } from './alerta';
 import { ConexaoPar } from './par';
 import { ControladorSessao, type EstadoSessao } from './sessao';
 import { ClienteSinalizacao, type EstadoSinalizacao } from './sinalizacao';
@@ -41,6 +42,11 @@ const sinalizacao = new ClienteSinalizacao({
 const controlador = new ControladorSessao({
   enviar: (mensagem) => sinalizacao.enviar(mensagem),
   aoMudarEstado: (estado) => {
+    // Pedido novo: traz a janela para frente e toca o aviso.
+    if (estado.fase === 'pedido_recebido' && estadoSessao.fase !== 'pedido_recebido') {
+      window.api.chamarAtencao();
+      tocarSomPedido();
+    }
     estadoSessao = estado;
     renderizar();
   },

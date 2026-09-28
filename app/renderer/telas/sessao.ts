@@ -28,8 +28,18 @@ export function montarTelaSessao(opcoes: OpcoesTelaSessao): TelaSessao {
   const origem = elemento<HTMLElement>('#origem-pedido');
   const aceitar = elemento<HTMLButtonElement>('#aceitar-pedido');
   const recusar = elemento<HTMLButtonElement>('#recusar-pedido');
+  const prazo = elemento<HTMLParagraphElement>('#prazo-pedido');
 
   let estado: EstadoSessao = { fase: 'livre' };
+  /** Atualiza a contagem regressiva enquanto a caixa de aceite está aberta. */
+  let relogio: ReturnType<typeof setInterval> | undefined;
+
+  function mostrarPrazo(): void {
+    if (estado.fase !== 'pedido_recebido') return;
+    // Só informativo: quem cancela o pedido quando o prazo acaba é o servidor.
+    const segundos = Math.max(0, Math.ceil((estado.expiraEm - Date.now()) / 1000));
+    prazo.textContent = `Sem resposta, o pedido será recusado em ${segundos} s.`;
+  }
 
   botao.addEventListener('click', () => {
     if (estado.fase === 'livre') painel.hidden = true; // "Fechar" só dispensa o aviso
@@ -77,9 +87,13 @@ export function montarTelaSessao(opcoes: OpcoesTelaSessao): TelaSessao {
       if (estado.fase === 'pedido_recebido') {
         origem.textContent = formatarId(estado.origem);
         aceitar.disabled = recusar.disabled = estado.respondendo;
+        mostrarPrazo();
+        relogio ??= setInterval(mostrarPrazo, 250);
         if (!dialogo.open) dialogo.showModal();
-      } else if (dialogo.open) {
-        dialogo.close();
+      } else {
+        clearInterval(relogio);
+        relogio = undefined;
+        if (dialogo.open) dialogo.close();
       }
     },
   };
