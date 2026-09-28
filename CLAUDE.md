@@ -102,9 +102,10 @@ Não tenho pressa: prefiro entender cada parte a avançar rápido.
 - **Pronto:** ✅ fase 3 concluída em 28/09/2026
 
 ### Fase 4 — Recursos de produtividade
-- [ ] 4.1 Área de transferência compartilhada
-- [ ] 4.2 Transferência de arquivos pelo DataChannel (com progresso)
-- [ ] 4.3 Chat simples durante a sessão
+- [x] 4.1 Sessões longas: sem limite de tempo, sobrevivem a quedas do servidor e da rede
+- [ ] 4.2 Área de transferência compartilhada
+- [ ] 4.3 Transferência de arquivos pelo DataChannel (com progresso)
+- [ ] 4.4 Chat simples durante a sessão
 
 ### Fase 5 — Robustez
 - [ ] 5.1 Múltiplos monitores (escolher qual ver)
@@ -120,10 +121,46 @@ Não tenho pressa: prefiro entender cada parte a avançar rápido.
 ## Estado atual
 Fase 1 concluída. Fase 2: 2.1 a 2.4 concluídas; 2.5 publicada e testada na mesma máquina,
 falta o teste entre duas redes (o usuário fará depois, com outro notebook). Fase 3 concluída
-(28/09/2026; servidor em produção com protocolo v5). Próxima: fase 4 (4.1 área de
+(28/09/2026). Fase 4: 4.1 (sessões longas, protocolo v6) concluída. Próxima: 4.2 (área de
 transferência compartilhada). Pendente do usuário: teste real entre duas redes (2.5).
 
 Decisões já tomadas:
+- Sessões longas (4.1, protocolo v6; objetivo do projeto: sessões de um dia inteiro). Não há
+  limite de duração. Depois que a conexão direta funciona, a sessão não depende do servidor:
+  - Servidor cai/reinicia (o Render gratuito "pode reiniciar a qualquer momento", e cada push
+    refaz o deploy): a sessão continua. No servidor, quem perde o parceiro fica `retomando`
+    (conta como ocupado; recebe `parceiro_ausente`); quem volta manda `retomar {parceiro,
+    papel, porSenha}` logo após o `registrado`. Só religa (`sessao_retomada` aos dois) quando
+    os DOIS declaram a mesma sessão (papéis opostos). Se o parceiro volta e não declara em 15 s
+    (`prazoRetomadaMs`; ex.: app reaberto), a espera acaba (`sessao_encerrada
+    {parceiro_desconectou}`); pedir `conectar` a quem ainda espera por você também a encerra.
+    Substituição (mesma instalação reconectando) mantém a sessão retomável. Senha recusada
+    com o visualizador fora do servidor ainda conta (`ipParceiro` guardado no `retomando`).
+  - Sessão que ainda não conectou direto (negociando) acaba se o servidor cair.
+  - Conexão direta cai depois de conectada: "reconectando" com prazo de 5 min (escolha do
+    usuário; `prazoReconexaoMs`), depois encerra (`falha_conexao`). O anfitrião refaz com ICE
+    restart (`par.reiniciarIce()`, nova oferta pelo servidor): na hora se "failed", e a cada
+    10 s enquanto não voltar (só quando o servidor liga os dois; também logo após
+    `sessao_retomada`). A primeira conexão que falha continua encerrando a sessão.
+  - Durante a queda: o anfitrião solta botões/teclas (`aoLiberarInput`); o visualizador
+    descarta input (não enfileira); painel com contagem e faixa sobre o vídeo.
+  - Fim pela conexão direta também (`encerrar {motivo?}` no canal, antes de fechar; o par
+    espera o aviso sair, até 1 s). Senha recusada NÃO vai pelo canal (só pelo servidor, que
+    conta os erros; o visualizador não pode se adiantar). Canal fechado sem aviso: espera 2 s
+    pelo motivo vindo do servidor, depois encerra por falha. Quem recebe o fim pelo canal
+    manda `encerrar` ao servidor (limpa um `retomando`).
+  - Candidato ICE inválido não derruba a sessão (pode chegar atrasado da rodada anterior);
+    resposta atrasada é ignorada; erro de sinal após conectar só vai para o log.
+  - Ping do app: `ping`/`pong` a cada 10 s; servidor calado por 25 s = conexão morta
+    (reconecta sem esperar o "close"). Queda da conexão direta pede `verificarConexao()`
+    (resposta em 5 s). O ping também mantém o Render acordado (a documentação confirma que
+    mensagens WebSocket contam como tráfego).
+  - Energia (`main/energia.ts`): em sessão (qualquer papel), `powerSaveBlocker`
+    "prevent-display-sleep" (IPC `sessao:manter-acordado`, só da janela principal; desfeito
+    se a janela fechar/travar/recarregar). Não impede suspender ao fechar a tampa (configurar
+    no Windows: "ao fechar a tampa: não fazer nada").
+  - Não resolvido (fase 5): tela de bloqueio do Windows (Win+L) não pode ser desbloqueada
+    remotamente (exige serviço do Windows).
 - ID fixo por instalação (3.2, protocolo v3): cada instalação tem um par Ed25519
   (`main/chaves-instalacao.ts`, `userData/identidade.json`, chave privada cifrada com
   `safeStorage`/DPAPI). Registro: `registrar {versao, chavePublica}` → `desafio {desafio}` →
@@ -195,7 +232,8 @@ Decisões já tomadas:
   Esc = recusar), para cumprir a regra de segurança desde a primeira conexão.
 - Sessões no servidor (`server/src/sessoes.ts`): conectar → pedido_conexao → responder_pedido
   → sessao_iniciada (para os dois). Só depois disso o servidor repassa `sinal` entre o par;
-  pedido expira em 30 s; um pedido/sessão por vez de cada lado; queda avisa o parceiro.
+  pedido expira em 30 s; um pedido/sessão por vez de cada lado; queda durante o pedido avisa
+  o parceiro (durante a sessão, ver "Sessões longas").
 - Pedido de acesso (2.1): `pedido_conexao` traz `prazoMs` (protocolo v2); o servidor é a única
   fonte do prazo, o app só mostra a contagem (`expiraEm` no estado). Ao chegar um pedido, o
   renderer chama `window.api.chamarAtencao()` (IPC `janela:chamar-atencao`, só aceito do quadro
@@ -256,7 +294,6 @@ Decisões já tomadas:
 - `encerrar` aceita `motivo` (`captura_indisponivel` | `falha_conexao`), repassado ao parceiro.
 - Visualizador: `renderer/telas/visualizacao.ts` troca a janela para o vídeo remoto
   (`body[data-tela='remota']`), com `object-fit: contain`.
-- Se a conexão com o servidor cai, a sessão é encerrada (mesmo que o P2P ainda funcione).
 - `renderer/sessao.ts` (ControladorSessao) é a máquina de estados da sessão; recebe a
   conexão WebRTC por injeção (`criarPar`) para ser testada no Node com um par falso.
 
@@ -289,8 +326,13 @@ Notas para as próximas etapas:
 - Se o usuário parar a captura pelo sistema operacional, a trilha termina ("ended") mas a
   sessão continua sem imagem; tratar quando houver como testar (ex.: macOS).
 - macOS ainda não testado: exige permissão de Gravação de Tela para `getDisplayMedia`.
-- Se a rede cair "em silêncio", o app só percebe quando o TCP expirar (o navegador não expõe
-  ping/pong). Se incomodar, criar um ping no nível da aplicação.
+- Teste E2E de reconexão (4.1): o servidor roda dentro do script (`iniciarServidor` com o
+  mesmo `InstalacoesEmMemoria`, para os IDs sobreviverem ao reinício; rodar o script com
+  `node --import tsx` a partir de `server/`). Para simular queda da conexão direta: capturar
+  as RTCPeerConnection com `Page.addScriptToEvaluateOnNewDocument` + `Page.reload`,
+  sobrescrever `connectionState` na instância ("failed") e disparar `connectionstatechange`;
+  a renegociação que se segue é real (conferir que o `ice-ufrag` mudou dos dois lados).
+- Queda real de rede (trocar de Wi-Fi) ainda não foi testada: conferir no teste entre redes.
 - Ao testar o app pelo Claude Code: a variável `ELECTRON_RUN_AS_NODE=1` (herdada do VS Code)
   precisa ser removida, e processos Electron em segundo plano morrem quando outra tarefa
   de fundo termina, então orquestrar servidor + app num único script.

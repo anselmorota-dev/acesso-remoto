@@ -45,7 +45,10 @@ const sinalizacao = new ClienteSinalizacao({
   identidade: window.api.identidade,
   aoMudarEstado: (estado) => {
     estadoSinalizacao = estado;
-    if (estado.fase !== 'online') controlador.servidorPerdido();
+    // Sem servidor, uma sessão já conectada continua (pela conexão direta);
+    // ao voltar, o controlador a declara para o servidor religar os dois.
+    if (estado.fase === 'online') controlador.servidorVoltou();
+    else controlador.servidorPerdido();
     renderizar();
   },
   aoMensagem: (mensagem) => controlador.receber(mensagem),
@@ -64,6 +67,9 @@ const controlador = new ControladorSessao({
     // computador e some quando a sessão acaba.
     const controlando = parceiroControlando(estado);
     if (controlando !== parceiroControlando(estadoSessao)) window.api.sessao.indicar(controlando);
+    // Em sessão, nenhum dos dois computadores suspende nem apaga a tela.
+    const emSessao = estado.fase === 'em_sessao';
+    if (emSessao !== (estadoSessao.fase === 'em_sessao')) window.api.sessao.manterAcordado(emSessao);
     estadoSessao = estado;
     renderizar();
   },
@@ -75,6 +81,7 @@ const controlador = new ControladorSessao({
   // Acesso com senha: quem sabe se há senha e quem confere é o main.
   senhaDefinida: () => window.api.senha.estado().then((estado) => estado.definida),
   tentarSenha: (senha) => window.api.senha.tentar(senha),
+  verificarServidor: () => sinalizacao.verificarConexao(),
 });
 
 // Encerrar pelo botão do indicador flutuante.

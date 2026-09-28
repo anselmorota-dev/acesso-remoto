@@ -7,18 +7,28 @@
 // sozinho, mas a sessão começa "travada" (sem tela e sem controle). O
 // visualizador manda a senha pela conexão direta; só se ela conferir o
 // anfitrião libera a tela e o controle. A senha nunca passa pelo servidor.
+//
+// Sessões longas (sem limite de tempo): depois de conectados, vídeo e
+// comandos vão direto entre os dois computadores, então:
+//   - se o servidor cai ou reinicia, a sessão continua; ao voltar, o app
+//     declara a sessão ("retomar") e o servidor religa os dois;
+//   - se a conexão direta cai (ex.: um lado trocou de rede), o anfitrião
+//     renegocia os caminhos (ICE restart) pelo servidor; se ela não voltar
+//     no prazo (5 min), a sessão acaba;
+//   - o fim da sessão também vai pela conexão direta (funciona sem servidor).
 import type {
   EventoInput,
   IdCliente,
   MensagemDoCliente,
-  MensagemDoServidor,
   MotivoEncerramento,
   MotivoFalha,
+  MotivoFimPeloCanal,
   MotivoRecusa,
   Papel,
 } from '@acesso-remoto/shared';
 import { ErroCaptura } from './captura';
 import type { EstadoPar, OpcoesPar, Par } from './par';
+import type { MensagemRecebida } from './sinalizacao';
 
 export type EstadoSessao =
   /** "aviso" explica por que a última tentativa/sessão terminou, se for o caso. */
@@ -48,6 +58,11 @@ export type EstadoSessao =
       porSenha: boolean;
       /** Tela e controle liberados: logo no aceite, ou depois de a senha conferir. */
       liberada: boolean;
+      /**
+       * A conexão direta caiu e está sendo refeita: instante (ms, relógio
+       * local) em que a sessão acaba se ela não voltar. null = conexão normal.
+       */
+      reconectandoAte: number | null;
     };
 
 /** Quem está vendo e controlando este computador (anfitrião em sessão liberada), ou null. */
@@ -78,11 +93,26 @@ export interface OpcoesControlador {
   senhaDefinida?: () => Promise<boolean>;
   /** Anfitrião: confere a senha recebida (com limite de tentativas). */
   tentarSenha?: (senha: string) => Promise<ResultadoTentativaSenha>;
+  /**
+   * A conexão direta caiu: conferir se a do servidor também (a rede pode ter
+   * mudado), para reconectar logo e poder refazer a conexão direta.
+   */
+  verificarServidor?: () => void;
   /** Anfitrião: tempo máximo para a senha chegar depois da sessão começar. */
   prazoSenhaMs?: number;
+  /** Tempo que a sessão espera a conexão direta voltar antes de acabar. */
+  prazoReconexaoMs?: number;
+  /** Anfitrião: de quanto em quanto tempo tenta refazer a conexão direta (ICE restart). */
+  intervaloReinicioIceMs?: number;
+  /** Canal direto fechado sem aviso: espera um pouco pelo motivo (vindo do servidor). */
+  esperaCanalPerdidoMs?: number;
 }
 
 const PRAZO_SENHA_PADRAO_MS = 15_000;
+/** Escolha do usuário (etapa 4.1): 5 minutos tentando reconectar. */
+const PRAZO_RECONEXAO_PADRAO_MS = 5 * 60_000;
+const INTERVALO_REINICIO_ICE_PADRAO_MS = 10_000;
+const ESPERA_CANAL_PERDIDO_PADRAO_MS = 2_000;
 
 const TEXTO_RECUSA: Record<MotivoRecusa, string> = {
   recusado: 'O outro computador recusou o acesso.',
@@ -96,7 +126,7 @@ const TEXTO_ENCERRAMENTO: Record<MotivoEncerramento, string> = {
   encerrada_pelo_parceiro: 'A sessão foi encerrada pelo outro computador.',
   parceiro_desconectou: 'O outro computador se desconectou.',
   captura_indisponivel: 'O outro computador não conseguiu capturar a tela.',
-  falha_conexao: 'Não foi possível estabelecer a conexão direta.',
+  falha_conexao: 'A conexão direta com o outro computador falhou.',
   senha_incorreta: 'Senha incorreta.',
   senha_bloqueada: 'Muitas tentativas com senha errada. Tente de novo mais tarde.',
 };
@@ -109,6 +139,14 @@ const TEXTO_FALHA_LOCAL: Record<MotivoFalha, string> = {
   senha_bloqueada: 'Tentativa de acesso com senha recusada: muitas senhas erradas seguidas.',
 };
 
+/** A conexão direta caiu no meio da sessão e não voltou no prazo. */
+const TEXTO_RECONEXAO_ESGOTADA = 'A conexão direta caiu e não voltou a tempo; a sessão foi encerrada.';
+
+/** O aviso de senha recusada só vai pelo servidor (que conta os erros); os outros vão também pelo canal. */
+function avisoPeloCanal(motivo: MotivoFalha): { motivo: MotivoFimPeloCanal } | undefined {
+  return motivo === 'senha_incorreta' || motivo === 'senha_bloqueada' ? undefined : { motivo };
+}
+
 export class ControladorSessao {
   private readonly opcoes: OpcoesControlador;
   private estadoAtual: EstadoSessao = { fase: 'livre' };
@@ -118,6 +156,14 @@ export class ControladorSessao {
   /** Anfitrião: prazo para a senha chegar; e se já há uma conferência em andamento. */
   private prazoSenha: ReturnType<typeof setTimeout> | undefined;
   private conferindoSenha = false;
+  /** A conexão direta já chegou a funcionar nesta sessão (a partir daí, quedas são recuperáveis). */
+  private jaConectou = false;
+  /** O servidor liga esta sessão aos dois lados (e repassa sinais entre eles). */
+  private ligadoNoServidor = false;
+  /** Conexão direta caída: quando desistir, e (anfitrião) as tentativas de refazê-la. */
+  private timerDesistir: ReturnType<typeof setTimeout> | undefined;
+  private timerReinicioIce: ReturnType<typeof setInterval> | undefined;
+  private timerCanalPerdido: ReturnType<typeof setTimeout> | undefined;
 
   constructor(opcoes: OpcoesControlador) {
     this.opcoes = opcoes;
@@ -152,10 +198,14 @@ export class ControladorSessao {
     this.mudar(aceito ? { ...estado, respondendo: true } : { fase: 'livre' });
   }
 
-  /** Visualizador: envia um evento de mouse/teclado ao anfitrião (só com a sessão liberada). */
+  /**
+   * Visualizador: envia um evento de mouse/teclado ao anfitrião (só com a
+   * sessão liberada). Com a conexão direta caída, descarta: senão o que foi
+   * digitado às cegas ficaria na fila e seria executado de uma vez na volta.
+   */
   enviarInput(evento: EventoInput): void {
     const estado = this.estadoAtual;
-    if (estado.fase === 'em_sessao' && estado.papel === 'visualizador' && estado.liberada) {
+    if (estado.fase === 'em_sessao' && estado.papel === 'visualizador' && estado.liberada && estado.reconectandoAte === null) {
       this.par?.enviarInput(evento);
     }
   }
@@ -174,23 +224,43 @@ export class ControladorSessao {
       return;
     }
     const estavaEmSessao = estado.fase === 'em_sessao';
+    // Pelo servidor e pela conexão direta: o outro lado fica sabendo mesmo
+    // que um dos dois caminhos esteja fora do ar.
     this.opcoes.enviar({ tipo: 'encerrar' });
-    this.fecharPar();
+    this.fecharPar({});
     this.mudar({ fase: 'livre', aviso: estavaEmSessao ? 'Sessão encerrada.' : undefined });
   }
 
-  /** A conexão com o servidor caiu: o servidor já desfez pedidos e sessões. */
+  // -------------------------------------------------------------------------
+  // Conexão com o servidor
+  // -------------------------------------------------------------------------
+
+  /**
+   * A conexão com o servidor caiu: o servidor desfez os pedidos. Uma sessão
+   * cuja conexão direta já funciona continua (e é retomada ao voltar).
+   */
   servidorPerdido(): void {
-    if (this.estadoAtual.fase === 'livre') return;
+    const estado = this.estadoAtual;
+    if (estado.fase === 'livre') return;
+    this.ligadoNoServidor = false;
+    if (estado.fase === 'em_sessao' && this.jaConectou) return;
+    // Pedido, ou sessão ainda negociando (os sinais passam pelo servidor): acaba.
     this.fecharPar();
     this.mudar({ fase: 'livre', aviso: 'A conexão com o servidor caiu; a sessão foi encerrada.' });
+  }
+
+  /** De volta ao servidor (registrado de novo): declara a sessão que continua. */
+  servidorVoltou(): void {
+    const estado = this.estadoAtual;
+    if (estado.fase !== 'em_sessao' || this.ligadoNoServidor) return;
+    this.opcoes.enviar({ tipo: 'retomar', parceiro: estado.parceiro, papel: estado.papel, porSenha: estado.porSenha });
   }
 
   // -------------------------------------------------------------------------
   // Mensagens do servidor
   // -------------------------------------------------------------------------
 
-  receber(mensagem: Exclude<MensagemDoServidor, { tipo: 'registrado' | 'desafio' }>): void {
+  receber(mensagem: MensagemRecebida): void {
     const estado = this.estadoAtual;
 
     switch (mensagem.tipo) {
@@ -232,7 +302,25 @@ export class ControladorSessao {
 
       case 'sinal':
         if (estado.fase === 'em_sessao' && this.par) {
-          this.par.receberSinal(mensagem.sinal).catch((erro: unknown) => this.falhaNaConexao(erro));
+          this.par.receberSinal(mensagem.sinal).catch((erro: unknown) => {
+            // Na negociação inicial, um erro impede a conexão. Depois dela
+            // (renegociação para reconectar), a próxima tentativa resolve.
+            if (this.jaConectou) console.warn('[sessao] sinal da renegociação falhou:', erro);
+            else this.falhaNaConexao(erro);
+          });
+        }
+        return;
+
+      case 'parceiro_ausente':
+        // O parceiro caiu do servidor; a sessão continua pela conexão direta.
+        if (estado.fase === 'em_sessao' && estado.parceiro === mensagem.parceiro) this.ligadoNoServidor = false;
+        return;
+
+      case 'sessao_retomada':
+        if (estado.fase === 'em_sessao' && estado.parceiro === mensagem.parceiro) {
+          this.ligadoNoServidor = true;
+          // Se a conexão direta caiu enquanto não havia servidor, dá para refazê-la agora.
+          this.tentarReiniciarIce();
         }
         return;
 
@@ -278,6 +366,8 @@ export class ControladorSessao {
   private iniciarSessao(parceiro: IdCliente, papel: Papel, porSenha: boolean): void {
     const senha = this.senhaParaEnviar;
     this.senhaParaEnviar = null;
+    this.jaConectou = false;
+    this.ligadoNoServidor = true;
     this.mudar({
       fase: 'em_sessao',
       parceiro,
@@ -286,18 +376,14 @@ export class ControladorSessao {
       latenciaMs: null,
       porSenha,
       liberada: !porSenha,
+      reconectandoAte: null,
     });
 
     const par = this.opcoes.criarPar({
       papel,
       enviarSinal: (sinal) => this.opcoes.enviar({ tipo: 'sinal', sinal }),
       aoMudarEstado: (conexao) => {
-        if (this.par !== par) return;
-        if (conexao === 'falhou') {
-          this.falhaNaConexao(new Error('ICE falhou'));
-          return;
-        }
-        this.atualizarSessao({ conexao });
+        if (this.par === par) this.aoMudarConexaoDireta(conexao);
       },
       aoMedirLatencia: (latenciaMs) => {
         if (this.par === par) this.atualizarSessao({ latenciaMs });
@@ -322,6 +408,27 @@ export class ControladorSessao {
           this.atualizarSessao({ liberada: true });
         }
       },
+      aoEncerrarPeloParceiro: (motivo) => {
+        if (this.par !== par || this.estadoAtual.fase !== 'em_sessao') return;
+        // Avisa o servidor também: se o outro lado estava fora dele, o servidor
+        // ainda guarda esta sessão esperando a retomada.
+        this.opcoes.enviar({ tipo: 'encerrar' });
+        this.fecharPar();
+        this.mudar({ fase: 'livre', aviso: TEXTO_ENCERRAMENTO[motivo ?? 'encerrada_pelo_parceiro'] });
+      },
+      aoPerderCanal: () => {
+        if (this.par !== par) return;
+        // O outro lado fechou a conexão sem aviso pelo canal (ex.: senha
+        // recusada, cujo aviso só vem pelo servidor): espera um pouco pelo
+        // motivo; se não vier, encerra por falha.
+        clearTimeout(this.timerCanalPerdido);
+        this.timerCanalPerdido = setTimeout(
+          () => {
+            if (this.par === par) this.encerrarPorFalha('falha_conexao');
+          },
+          this.opcoes.esperaCanalPerdidoMs ?? ESPERA_CANAL_PERDIDO_PADRAO_MS,
+        );
+      },
     });
     this.par = par;
     par.iniciar().catch((erro: unknown) => this.falhaNaConexao(erro));
@@ -339,6 +446,76 @@ export class ControladorSessao {
       // Visualizador: manda a senha (o par espera o canal direto abrir).
       par.enviarSenha(senha ?? '');
     }
+  }
+
+  /** Mudança no estado da conexão direta (a do par atual). */
+  private aoMudarConexaoDireta(conexao: EstadoPar): void {
+    if (conexao === 'conectado') {
+      this.jaConectou = true;
+      this.pararReconexao();
+      this.atualizarSessao({ conexao, reconectandoAte: null });
+      return;
+    }
+    if (conexao === 'fechado') {
+      this.atualizarSessao({ conexao });
+      return;
+    }
+    // "conectando" (a rede oscilou) ou "falhou".
+    if (!this.jaConectou) {
+      // Ainda na primeira conexão: falhar aqui é não conseguir conectar.
+      if (conexao === 'falhou') this.falhaNaConexao(new Error('ICE falhou'));
+      else this.atualizarSessao({ conexao });
+      return;
+    }
+    this.conexaoDiretaCaiu(conexao === 'falhou');
+  }
+
+  /**
+   * A conexão direta caiu depois de ter funcionado: começa a contar o prazo
+   * e (anfitrião) tenta refazê-la de tempos em tempos. Oscilações curtas
+   * voltam sozinhas; "falhou" pede uma tentativa na hora.
+   */
+  private conexaoDiretaCaiu(falhou: boolean): void {
+    const estado = this.estadoAtual;
+    if (estado.fase !== 'em_sessao') return;
+    if (!this.timerDesistir) {
+      const prazo = this.opcoes.prazoReconexaoMs ?? PRAZO_RECONEXAO_PADRAO_MS;
+      this.timerDesistir = setTimeout(() => this.desistirDeReconectar(), prazo);
+      this.atualizarSessao({ conexao: 'conectando', reconectandoAte: Date.now() + prazo });
+      // A rede pode ter mudado: a conexão com o servidor talvez também tenha morrido.
+      this.opcoes.verificarServidor?.();
+      if (estado.papel === 'anfitriao') {
+        // O "soltar" de um botão ou tecla pode se perder na queda: solta tudo já.
+        this.opcoes.aoLiberarInput?.();
+        this.timerReinicioIce = setInterval(
+          () => this.tentarReiniciarIce(),
+          this.opcoes.intervaloReinicioIceMs ?? INTERVALO_REINICIO_ICE_PADRAO_MS,
+        );
+      }
+    }
+    if (falhou) this.tentarReiniciarIce();
+  }
+
+  /** Anfitrião: refaz a conexão direta, se ela está caída e o servidor liga os dois. */
+  private tentarReiniciarIce(): void {
+    const estado = this.estadoAtual;
+    if (estado.fase !== 'em_sessao' || estado.papel !== 'anfitriao') return;
+    if (!this.par || !this.timerDesistir || !this.ligadoNoServidor) return;
+    this.par.reiniciarIce().catch((erro: unknown) => console.warn('[sessao] falha ao refazer a conexão direta:', erro));
+  }
+
+  private desistirDeReconectar(): void {
+    if (this.estadoAtual.fase !== 'em_sessao') return;
+    this.opcoes.enviar({ tipo: 'encerrar', motivo: 'falha_conexao' });
+    this.fecharPar({ motivo: 'falha_conexao' });
+    this.mudar({ fase: 'livre', aviso: TEXTO_RECONEXAO_ESGOTADA });
+  }
+
+  private pararReconexao(): void {
+    clearTimeout(this.timerDesistir);
+    clearInterval(this.timerReinicioIce);
+    this.timerDesistir = undefined;
+    this.timerReinicioIce = undefined;
   }
 
   /** Anfitrião: confere a senha recebida; libera tudo ou encerra a sessão. */
@@ -376,21 +553,31 @@ export class ControladorSessao {
   private encerrarPorFalha(motivo: MotivoFalha): void {
     if (this.estadoAtual.fase !== 'em_sessao') return;
     this.opcoes.enviar({ tipo: 'encerrar', motivo });
-    this.fecharPar();
+    this.fecharPar(avisoPeloCanal(motivo));
     this.mudar({ fase: 'livre', aviso: TEXTO_FALHA_LOCAL[motivo] });
   }
 
-  private atualizarSessao(mudancas: { conexao?: EstadoPar; latenciaMs?: number; liberada?: boolean }): void {
+  private atualizarSessao(mudancas: {
+    conexao?: EstadoPar;
+    latenciaMs?: number;
+    liberada?: boolean;
+    reconectandoAte?: number | null;
+  }): void {
     if (this.estadoAtual.fase === 'em_sessao') this.mudar({ ...this.estadoAtual, ...mudancas });
   }
 
-  private fecharPar(): void {
+  /** Fecha a conexão direta (com "aviso", manda antes o fim pelo canal). */
+  private fecharPar(aviso?: { motivo?: MotivoFimPeloCanal }): void {
     clearTimeout(this.prazoSenha);
+    clearTimeout(this.timerCanalPerdido);
+    this.pararReconexao();
     this.conferindoSenha = false;
+    this.jaConectou = false;
+    this.ligadoNoServidor = false;
     const par = this.par;
     if (!par) return;
     this.par = null; // antes de fechar, para ignorar os eventos que o fechamento dispara
-    par.fechar();
+    par.fechar(aviso);
     this.opcoes.aoMudarVideo?.(null);
     if (this.estadoAtual.fase === 'em_sessao' && this.estadoAtual.papel === 'anfitriao') {
       this.opcoes.aoLiberarInput?.();

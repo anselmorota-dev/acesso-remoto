@@ -122,6 +122,18 @@ export const esquemaMensagemDoCliente = z.discriminatedUnion('tipo', [
   z.object({ tipo: z.literal('sinal'), sinal: esquemaSinal }),
   /** Cancela o pedido em andamento ou encerra a sessão atual (com o motivo, se foi falha). */
   z.object({ tipo: z.literal('encerrar'), motivo: esquemaMotivoFalha.optional() }),
+  /**
+   * Depois de reconectar ao servidor: "eu continuo na sessão com este parceiro".
+   * A conexão direta não depende do servidor, então a sessão sobrevive a uma
+   * queda dele; quando os DOIS lados declaram a mesma sessão, o servidor volta
+   * a ligá-los (e a repassar sinais, ex.: para reconectar a conexão direta).
+   */
+  z.object({ tipo: z.literal('retomar'), parceiro: esquemaId, papel: esquemaPapel, porSenha: z.boolean() }),
+  /**
+   * Mantém a conexão viva: o navegador não enxerga o ping do WebSocket, então
+   * o app manda o seu e espera o "pong" para saber que o servidor ainda o ouve.
+   */
+  z.object({ tipo: z.literal('ping') }),
 ]);
 export type MensagemDoCliente = z.infer<typeof esquemaMensagemDoCliente>;
 
@@ -174,7 +186,7 @@ export type MotivoRecusa = z.infer<typeof esquemaMotivoRecusa>;
 export const esquemaMotivoEncerramento = z.enum([
   /** O outro lado clicou em Encerrar. */
   'encerrada_pelo_parceiro',
-  /** O outro lado perdeu a conexão com o servidor. */
+  /** O outro lado voltou ao servidor sem a sessão (ex.: o app dele foi reaberto). */
   'parceiro_desconectou',
   // O outro lado encerrou por uma falha:
   ...esquemaMotivoFalha.options,
@@ -215,6 +227,16 @@ export const esquemaMensagemDoServidor = z.discriminatedUnion('tipo', [
   z.object({ tipo: z.literal('sinal'), sinal: esquemaSinal }),
   /** A sessão terminou pelo outro lado. */
   z.object({ tipo: z.literal('sessao_encerrada'), motivo: esquemaMotivoEncerramento }),
+  /**
+   * O parceiro perdeu a conexão com o servidor. A sessão continua (a conexão
+   * direta não passa pelo servidor), mas sinais só voltam a passar depois
+   * que ele reconectar e os dois forem religados ("sessao_retomada").
+   */
+  z.object({ tipo: z.literal('parceiro_ausente'), parceiro: esquemaId }),
+  /** Os dois lados declararam a mesma sessão depois de uma queda: estão ligados de novo. */
+  z.object({ tipo: z.literal('sessao_retomada'), parceiro: esquemaId }),
+  /** Resposta ao "ping" do app. */
+  z.object({ tipo: z.literal('pong') }),
 ]);
 export type MensagemDoServidor = z.infer<typeof esquemaMensagemDoServidor>;
 

@@ -20,6 +20,12 @@ const TEXTO_CONEXAO = {
   fechado: 'encerrada',
 } as const;
 
+/** "4:05" (minutos:segundos), para contagens regressivas. */
+export function formatarDuracao(ms: number): string {
+  const total = Math.max(0, Math.ceil(ms / 1000));
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
+}
+
 export function montarTelaSessao(opcoes: OpcoesTelaSessao): TelaSessao {
   const painel = elemento<HTMLElement>('#painel-sessao');
   const texto = elemento<HTMLParagraphElement>('#texto-sessao');
@@ -33,12 +39,31 @@ export function montarTelaSessao(opcoes: OpcoesTelaSessao): TelaSessao {
   let estado: EstadoSessao = { fase: 'livre' };
   /** Atualiza a contagem regressiva enquanto a caixa de aceite está aberta. */
   let relogio: ReturnType<typeof setInterval> | undefined;
+  /** Atualiza a contagem enquanto a conexão direta está sendo refeita. */
+  let relogioReconexao: ReturnType<typeof setInterval> | undefined;
 
   function mostrarPrazo(): void {
     if (estado.fase !== 'pedido_recebido') return;
     // Só informativo: quem cancela o pedido quando o prazo acaba é o servidor.
     const segundos = Math.max(0, Math.ceil((estado.expiraEm - Date.now()) / 1000));
     prazo.textContent = `Sem resposta, o pedido será recusado em ${segundos} s.`;
+  }
+
+  /** Texto do painel durante a sessão liberada. */
+  function mostrarSessao(): void {
+    if (estado.fase !== 'em_sessao' || !estado.liberada) return;
+    const quem = estado.papel === 'anfitriao' ? 'acessado por' : 'acessando';
+    const inicio = `Sessão ativa: ${quem} ${formatarId(estado.parceiro)}`;
+    if (estado.reconectandoAte !== null) {
+      // Só informativo: quem encerra quando o prazo acaba é o controlador.
+      const restante = formatarDuracao(estado.reconectandoAte - Date.now());
+      texto.textContent = `${inicio} — conexão perdida, reconectando… (se não voltar, a sessão encerra em ${restante})`;
+      painel.dataset['conexao'] = 'reconectando';
+      return;
+    }
+    const latencia = estado.latenciaMs === null ? '' : ` · latência ${estado.latenciaMs} ms`;
+    texto.textContent = `${inicio} — ${TEXTO_CONEXAO[estado.conexao]}${latencia}`;
+    painel.dataset['conexao'] = estado.conexao;
   }
 
   botao.addEventListener('click', () => {
@@ -89,12 +114,16 @@ export function montarTelaSessao(opcoes: OpcoesTelaSessao): TelaSessao {
                 : `Conferindo a senha com ${formatarId(estado.parceiro)}…`;
             break;
           }
-          const quem = estado.papel === 'anfitriao' ? 'acessado por' : 'acessando';
-          const latencia = estado.latenciaMs === null ? '' : ` · latência ${estado.latenciaMs} ms`;
-          texto.textContent = `Sessão ativa: ${quem} ${formatarId(estado.parceiro)} — ${TEXTO_CONEXAO[estado.conexao]}${latencia}`;
-          painel.dataset['conexao'] = estado.conexao;
+          mostrarSessao();
           break;
         }
+      }
+
+      if (estado.fase === 'em_sessao' && estado.reconectandoAte !== null) {
+        relogioReconexao ??= setInterval(mostrarSessao, 1000);
+      } else {
+        clearInterval(relogioReconexao);
+        relogioReconexao = undefined;
       }
 
       // Caixa de aceite: aberta só enquanto há pedido para alguém responder

@@ -13,6 +13,8 @@ export const CANAL_LIBERAR_INPUT = 'input:liberar';
 export const CANAL_INDICAR_SESSAO = 'sessao:indicar';
 /** Canal IPC main → renderer: pedido para encerrar a sessão (veio do indicador). */
 export const CANAL_PEDIDO_ENCERRAR = 'sessao:pedido-encerrar';
+/** Canal IPC renderer → main: em sessão, não deixar o computador suspender (true/false). */
+export const CANAL_MANTER_ACORDADO = 'sessao:manter-acordado';
 /** Canais IPC renderer ⇄ main (com resposta) da senha de acesso não supervisionado. */
 export const CANAL_SENHA_ESTADO = 'senha:estado';
 export const CANAL_SENHA_DEFINIR = 'senha:definir';
@@ -59,6 +61,8 @@ export interface ApiDoPreload {
     indicar(parceiro: string | null): void;
     /** Registra quem trata o pedido de encerrar feito pelo indicador. */
     aoPedirEncerramento(tratar: () => void): void;
+    /** Em sessão (qualquer papel): mantém a tela acesa e o sistema sem suspender. */
+    manterAcordado(ligar: boolean): void;
   };
   /** Ícone da bandeja: a janela principal informa o ID e quem está controlando. */
   readonly bandeja: {

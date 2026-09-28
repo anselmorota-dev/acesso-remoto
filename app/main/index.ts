@@ -6,6 +6,7 @@ import { PROTOCOL_VERSION } from '@acesso-remoto/shared';
 import { configurarAtencao } from './atencao';
 import { ARGUMENTO_OCULTO, avisarQueContinuaNaBandeja, configurarBandeja } from './bandeja';
 import { configurarCaptura } from './captura';
+import { configurarEnergia } from './energia';
 import { configurarIdentidade } from './identidade';
 import { configurarIndicador } from './indicador';
 import { configurarInput } from './input';
@@ -94,6 +95,7 @@ if (!app.requestSingleInstanceLock()) {
     configurarCaptura();
     configurarAtencao();
     configurarIndicador();
+    configurarEnergia();
     configurarIdentidade();
     configurarSenha();
     configurarInput(); // antes de criar a janela: registra a limpeza ao fechá-la

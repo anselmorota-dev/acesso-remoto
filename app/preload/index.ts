@@ -14,6 +14,7 @@ import {
   CANAL_IDENTIDADE_CHAVE,
   CANAL_INDICAR_SESSAO,
   CANAL_LIBERAR_INPUT,
+  CANAL_MANTER_ACORDADO,
   CANAL_PEDIDO_ENCERRAR,
   CANAL_SENHA_DEFINIR,
   CANAL_SENHA_ESTADO,
@@ -39,6 +40,7 @@ const api: ApiDoPreload = {
     aoPedirEncerramento: (tratar) => {
       ipcRenderer.on(CANAL_PEDIDO_ENCERRAR, () => tratar());
     },
+    manterAcordado: (ligar) => ipcRenderer.send(CANAL_MANTER_ACORDADO, ligar),
   },
   bandeja: {
     atualizar: (estado) => ipcRenderer.send(CANAL_BANDEJA_ESTADO, estado),

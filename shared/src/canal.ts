@@ -2,7 +2,12 @@
 // WebRTC (sem passar pelo servidor): o ping que mede a latência e os
 // eventos de input (mouse e teclado) e, no acesso não supervisionado, a senha.
 import { z } from 'zod';
+import { esquemaMotivoFalha } from './mensagens.js';
 import { SENHA_MAXIMA } from './senha.js';
+
+/** Falhas que podem encerrar a sessão pelo canal direto (todas menos as de senha). */
+export const esquemaMotivoFimPeloCanal = esquemaMotivoFalha.exclude(['senha_incorreta', 'senha_bloqueada']);
+export type MotivoFimPeloCanal = z.infer<typeof esquemaMotivoFimPeloCanal>;
 
 /** Maior mensagem aceita pelo canal, checada antes do JSON.parse. */
 export const TAMANHO_MAXIMO_MENSAGEM_CANAL = 16 * 1024;
@@ -93,6 +98,13 @@ export const esquemaMensagemCanal = z.discriminatedUnion('tipo', [
   z.object({ tipo: z.literal('senha'), senha: z.string().min(1).max(SENHA_MAXIMA * 4) }),
   /** Anfitrião → visualizador: a senha conferiu; tela e controle liberados. */
   z.object({ tipo: z.literal('autenticado') }),
+  /**
+   * Qualquer lado: a sessão acabou (clique em Encerrar ou falha). Vai também
+   * pelo servidor; pelo canal, o fim chega mesmo com o servidor fora do ar.
+   * Senha recusada não vem por aqui: esse aviso só vale pelo servidor, que
+   * conta os erros (o visualizador não pode se adiantar e "apagar" a contagem).
+   */
+  z.object({ tipo: z.literal('encerrar'), motivo: esquemaMotivoFimPeloCanal.optional() }),
   ...esquemasInput,
 ]);
 export type MensagemCanal = z.infer<typeof esquemaMensagemCanal>;

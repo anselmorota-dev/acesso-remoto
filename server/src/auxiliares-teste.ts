@@ -1,7 +1,8 @@
 // Funções auxiliares usadas pelos testes do servidor (não é um arquivo de teste).
 import assert from 'node:assert/strict';
 import { generateKeyPairSync, sign } from 'node:crypto';
-import { WebSocket } from 'ws';
+import type { AddressInfo } from 'node:net';
+import { WebSocket, WebSocketServer } from 'ws';
 import { PROTOCOL_VERSION, mensagemDeRegistro, type MensagemDoServidor } from '@acesso-remoto/shared';
 
 /** Identidade de uma instalação (par de chaves Ed25519), como o app gera. */
@@ -97,6 +98,34 @@ export async function registrarCliente(porta: number, identidade: IdentidadeTest
   const cliente = await conectarCliente(porta, { ip });
   const id = await completarRegistro(cliente, identidade);
   return { ...cliente, id, identidade };
+}
+
+/**
+ * Servidor falso que registra quem conecta (ID fixo "123456789") e depois fica
+ * calado: não responde ping nem nada. Simula uma rede que caiu "em silêncio",
+ * em que a conexão parece aberta mas nada mais chega.
+ */
+export async function iniciarServidorCalado() {
+  const wss = new WebSocketServer({ port: 0 });
+  await new Promise((resolve) => wss.once('listening', resolve));
+  let conexoes = 0;
+  wss.on('connection', (socket) => {
+    conexoes++;
+    socket.on('message', (dados) => {
+      const mensagem = JSON.parse(dados.toString()) as { tipo: string };
+      if (mensagem.tipo === 'registrar') socket.send(JSON.stringify({ tipo: 'desafio', desafio: 'A'.repeat(43) }));
+      if (mensagem.tipo === 'provar') socket.send(JSON.stringify({ tipo: 'registrado', id: '123456789' }));
+    });
+  });
+  return {
+    porta: (wss.address() as AddressInfo).port,
+    conexoes: () => conexoes,
+    fechar: () =>
+      new Promise<void>((resolve) => {
+        for (const cliente of wss.clients) cliente.terminate();
+        wss.close(() => resolve());
+      }),
+  };
 }
 
 /** Espera uma condição ficar verdadeira (para efeitos assíncronos no servidor). */

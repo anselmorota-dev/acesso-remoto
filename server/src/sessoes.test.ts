@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { afterEach, beforeEach, test } from 'node:test';
 import type { Sinal } from '@acesso-remoto/shared';
 import { iniciarServidor, type OpcoesServidor, type ServidorSinalizacao } from './servidor.js';
-import { encerrarClientes, registrarCliente, type ClienteTeste } from './auxiliares-teste.js';
+import { encerrarClientes, registrarCliente } from './auxiliares-teste.js';
+import { InstalacoesEmMemoria } from './instalacoes.js';
 
 let servidor: ServidorSinalizacao;
 
@@ -18,7 +19,7 @@ afterEach(async () => {
   await servidor.fechar();
 });
 
-type Registrado = ClienteTeste & { id: string };
+type Registrado = Awaited<ReturnType<typeof registrarCliente>>;
 const registrado = (): Promise<Registrado> => registrarCliente(servidor.porta);
 
 const oferta: Sinal = { tipo: 'oferta', sdp: 'v=0 (oferta de teste)' };
@@ -228,13 +229,149 @@ test('o motivo de uma falha é repassado ao parceiro', async () => {
   });
 });
 
-test('queda de um lado encerra a sessão do outro', async () => {
+// ---------------------------------------------------------------------------
+// Sessões longas: a sessão sobrevive a quedas do servidor (a conexão direta
+// não passa por ele) e os dois lados são religados quando voltam.
+// ---------------------------------------------------------------------------
+
+/** A mesma instalação conectando de novo (mesma identidade = mesmo ID). */
+const voltar = (cliente: Registrado): Promise<Registrado> => registrarCliente(servidor.porta, cliente.identidade);
+
+test('queda de um lado não encerra a sessão: o outro é avisado e continua ocupado', async () => {
   const { visualizador, anfitriao } = await emSessao();
   anfitriao.socket.terminate();
-  assert.deepEqual(await visualizador.proxima(), {
-    tipo: 'sessao_encerrada',
-    motivo: 'parceiro_desconectou',
-  });
+  assert.deepEqual(await visualizador.proxima(), { tipo: 'parceiro_ausente', parceiro: anfitriao.id });
+
+  // Continua em sessão: novos pedidos a ele são recusados...
+  const outro = await registrado();
+  outro.enviar({ tipo: 'conectar', destino: visualizador.id, comSenha: false });
+  const resposta = await outro.proxima();
+  assert.equal(resposta.tipo === 'pedido_recusado' && resposta.motivo, 'ocupado');
+  // ...e sinais não têm para onde ir até o parceiro voltar.
+  visualizador.enviar({ tipo: 'sinal', sinal: ice });
+  const erro = await visualizador.proxima();
+  assert.equal(erro.tipo === 'erro' && erro.codigo, 'sem_sessao');
+});
+
+test('quem cai e volta declara a sessão e os dois são religados', async () => {
+  const { visualizador, anfitriao } = await emSessao();
+  anfitriao.socket.terminate();
+  await visualizador.proxima(); // parceiro_ausente
+
+  const anfitriaoDeNovo = await voltar(anfitriao);
+  anfitriaoDeNovo.enviar({ tipo: 'retomar', parceiro: visualizador.id, papel: 'anfitriao', porSenha: false });
+  assert.deepEqual(await anfitriaoDeNovo.proxima(), { tipo: 'sessao_retomada', parceiro: visualizador.id });
+  assert.deepEqual(await visualizador.proxima(), { tipo: 'sessao_retomada', parceiro: anfitriao.id });
+
+  // Sinais voltam a passar (ex.: para reconectar a conexão direta).
+  anfitriaoDeNovo.enviar({ tipo: 'sinal', sinal: oferta });
+  assert.deepEqual(await visualizador.proxima(), { tipo: 'sinal', sinal: oferta });
+});
+
+test('servidor reiniciado: os dois declaram a sessão e são religados', async () => {
+  // Os IDs sobrevivem ao reinício (em produção, no banco).
+  const instalacoes = new InstalacoesEmMemoria();
+  await servidor.fechar();
+  await subir({ instalacoes });
+  const { visualizador, anfitriao } = await emSessao();
+  await servidor.fechar();
+  await subir({ instalacoes });
+
+  const v = await voltar(visualizador);
+  const a = await voltar(anfitriao);
+  v.enviar({ tipo: 'retomar', parceiro: anfitriao.id, papel: 'visualizador', porSenha: false });
+  await v.nadaRecebidoEm(); // o parceiro ainda não declarou: espera
+  a.enviar({ tipo: 'retomar', parceiro: visualizador.id, papel: 'anfitriao', porSenha: false });
+  assert.deepEqual(await a.proxima(), { tipo: 'sessao_retomada', parceiro: visualizador.id });
+  assert.deepEqual(await v.proxima(), { tipo: 'sessao_retomada', parceiro: anfitriao.id });
+});
+
+test('parceiro que volta sem a sessão (app reaberto): a espera acaba no prazo', async () => {
+  await servidor.fechar();
+  await subir({ prazoRetomadaMs: 100 });
+  const { visualizador, anfitriao } = await emSessao();
+  anfitriao.socket.terminate();
+  await visualizador.proxima(); // parceiro_ausente
+
+  // Voltou ao servidor, mas não declara sessão nenhuma.
+  const anfitriaoDeNovo = await voltar(anfitriao);
+  assert.deepEqual(await visualizador.proxima(), { tipo: 'sessao_encerrada', motivo: 'parceiro_desconectou' });
+  // Os dois ficam livres.
+  await pedir(visualizador, anfitriaoDeNovo);
+});
+
+test('declarações que não combinam não religam ninguém', async () => {
+  const instalacoes = new InstalacoesEmMemoria();
+  await servidor.fechar();
+  await subir({ prazoRetomadaMs: 100, instalacoes });
+  const { visualizador, anfitriao } = await emSessao();
+  await servidor.fechar();
+  await subir({ prazoRetomadaMs: 100, instalacoes });
+
+  // Os dois dizem ser o visualizador: não é a mesma sessão.
+  const v = await voltar(visualizador);
+  const a = await voltar(anfitriao);
+  v.enviar({ tipo: 'retomar', parceiro: anfitriao.id, papel: 'visualizador', porSenha: false });
+  a.enviar({ tipo: 'retomar', parceiro: visualizador.id, papel: 'visualizador', porSenha: false });
+  assert.deepEqual(await v.proxima(), { tipo: 'sessao_encerrada', motivo: 'parceiro_desconectou' });
+  assert.deepEqual(await a.proxima(), { tipo: 'sessao_encerrada', motivo: 'parceiro_desconectou' });
+});
+
+test('um estranho não consegue se ligar a quem espera outro parceiro', async () => {
+  await servidor.fechar();
+  await subir({ prazoRetomadaMs: 100 });
+  const { visualizador, anfitriao } = await emSessao();
+  anfitriao.socket.terminate();
+  await visualizador.proxima(); // parceiro_ausente
+
+  const intruso = await registrado();
+  intruso.enviar({ tipo: 'retomar', parceiro: visualizador.id, papel: 'anfitriao', porSenha: false });
+  // O intruso não é religado a nada (a espera dele acaba no prazo)...
+  assert.deepEqual(await intruso.proxima(), { tipo: 'sessao_encerrada', motivo: 'parceiro_desconectou' });
+  // ...e o visualizador nem fica sabendo: continua esperando o parceiro certo.
+  await visualizador.nadaRecebidoEm();
+  const anfitriaoDeNovo = await voltar(anfitriao);
+  anfitriaoDeNovo.enviar({ tipo: 'retomar', parceiro: visualizador.id, papel: 'anfitriao', porSenha: false });
+  assert.deepEqual(await visualizador.proxima(), { tipo: 'sessao_retomada', parceiro: anfitriao.id });
+});
+
+test('pedir uma conexão nova a quem ainda espera por você encerra a sessão antiga', async () => {
+  const { visualizador, anfitriao } = await emSessao();
+  visualizador.socket.terminate();
+  await anfitriao.proxima(); // parceiro_ausente
+
+  const visualizadorDeNovo = await voltar(visualizador);
+  visualizadorDeNovo.enviar({ tipo: 'conectar', destino: anfitriao.id, comSenha: false });
+  assert.deepEqual(await anfitriao.proxima(), { tipo: 'sessao_encerrada', motivo: 'parceiro_desconectou' });
+  assert.equal((await anfitriao.proxima()).tipo, 'pedido_conexao');
+});
+
+test('encerrar durante a espera libera quem esperava', async () => {
+  const { visualizador, anfitriao } = await emSessao();
+  visualizador.socket.terminate();
+  await anfitriao.proxima(); // parceiro_ausente
+  anfitriao.enviar({ tipo: 'encerrar' });
+  const outro = await registrado();
+  await pedir(outro, anfitriao);
+});
+
+test('a mesma instalação conectando de novo (substituição) mantém a sessão retomável', async () => {
+  const { visualizador, anfitriao } = await emSessao();
+  // O visualizador reconecta antes de o servidor perceber a queda da conexão antiga.
+  const visualizadorDeNovo = await voltar(visualizador);
+  const aviso = await visualizador.proxima();
+  assert.equal(aviso.tipo === 'erro' && aviso.codigo, 'substituida');
+  assert.deepEqual(await anfitriao.proxima(), { tipo: 'parceiro_ausente', parceiro: visualizador.id });
+
+  visualizadorDeNovo.enviar({ tipo: 'retomar', parceiro: anfitriao.id, papel: 'visualizador', porSenha: false });
+  assert.deepEqual(await anfitriao.proxima(), { tipo: 'sessao_retomada', parceiro: visualizador.id });
+});
+
+test('retomar tendo outro pedido ou sessão em andamento é recusado', async () => {
+  const { visualizador, anfitriao } = await emSessao();
+  visualizador.enviar({ tipo: 'retomar', parceiro: anfitriao.id, papel: 'visualizador', porSenha: false });
+  const erro = await visualizador.proxima();
+  assert.equal(erro.tipo === 'erro' && erro.codigo, 'ja_em_sessao');
 });
 
 test('sinais com formato inválido são barrados pelo servidor', async () => {
@@ -366,6 +503,24 @@ test('teto por ID: erros de vários IPs somados pausam o acesso com senha a ele'
   // O aceite comum (alguém presente no anfitrião) continua funcionando.
   novo.enviar({ tipo: 'conectar', destino: alvo.id, comSenha: false });
   assert.equal((await alvo.proxima()).tipo, 'pedido_conexao');
+});
+
+test('senha recusada enquanto o visualizador está fora do servidor ainda conta o erro', async () => {
+  await servidor.fechar();
+  await subir({ proxiesConfiaveis: 1, limites: { errosSenhaPorIpEId: { limite: 1, janelaMs: 60_000, bloqueioMs: 60_000 } } });
+  const atacante = await deIp('66.6.6.6');
+  const alvo = await deIp('200.1.1.1');
+  await pedir(atacante, alvo, 30_000, true);
+  alvo.enviar({ tipo: 'responder_pedido', origem: atacante.id, aceito: true, porSenha: true });
+  await atacante.proxima();
+  await alvo.proxima();
+  // Sai do servidor de propósito e manda a senha só pela conexão direta.
+  atacante.socket.terminate();
+  assert.equal((await alvo.proxima()).tipo, 'parceiro_ausente');
+  alvo.enviar({ tipo: 'encerrar', motivo: 'senha_incorreta' });
+
+  const deNovo = await registrarCliente(servidor.porta, atacante.identidade, '66.6.6.6');
+  assert.deepEqual(await pedirComSenha(deNovo, alvo.id), { tipo: 'pedido_recusado', destino: alvo.id, motivo: 'bloqueado' });
 });
 
 test('"senha_incorreta" numa sessão aceita manualmente não conta como erro de senha', async () => {

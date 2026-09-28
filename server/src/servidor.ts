@@ -28,6 +28,8 @@ export interface OpcoesServidor {
   prazoRegistroMs?: number;
   /** Tempo que o anfitrião tem para aceitar ou recusar um pedido. */
   prazoRespostaPedidoMs?: number;
+  /** Tempo que quem voltou ao servidor tem para declarar a sessão em que estava. */
+  prazoRetomadaMs?: number;
   /** Tamanho máximo de uma mensagem. Ofertas SDP têm poucos KB. */
   tamanhoMaximoMensagem?: number;
   /** Função de log; nos testes pode ser silenciada. */
@@ -71,6 +73,7 @@ export async function iniciarServidor(opcoes: OpcoesServidor): Promise<ServidorS
     intervaloHeartbeatMs = 30_000,
     prazoRegistroMs = 10_000,
     prazoRespostaPedidoMs = 30_000,
+    prazoRetomadaMs = 15_000,
     tamanhoMaximoMensagem = 64 * 1024,
     log = console.log,
     instalacoes = new InstalacoesEmMemoria(),
@@ -112,6 +115,7 @@ export async function iniciarServidor(opcoes: OpcoesServidor): Promise<ServidorS
     enviar,
     enviarErro,
     prazoRespostaMs: prazoRespostaPedidoMs,
+    prazoRetomadaMs,
     limites,
     log,
   });
@@ -189,9 +193,10 @@ export async function iniciarServidor(opcoes: OpcoesServidor): Promise<ServidorS
 
     // A mesma instalação já estava conectada (ex.: rede caiu e voltou antes
     // do servidor perceber): a conexão nova, que provou a posse, fica com o ID.
+    // Uma sessão da antiga não acaba: a nova pode retomá-la.
     const antiga = registrados.get(id);
     if (antiga && antiga !== conexao) {
-      sessoes.encerrar(antiga, 'parceiro_desconectou');
+      sessoes.desconectou(antiga);
       registrados.delete(id);
       antiga.id = null;
       enviarErro(antiga, 'substituida', 'Este computador conectou de novo em outro lugar');
@@ -201,6 +206,7 @@ export async function iniciarServidor(opcoes: OpcoesServidor): Promise<ServidorS
     conexao.registro = null;
     conexao.id = id;
     registrados.set(id, conexao);
+    sessoes.aoRegistrar(conexao as ConexaoRegistrada);
     enviar(conexao, { tipo: 'registrado', id });
     log(`[server] registrado ${id} (online: ${registrados.size})`);
   }
@@ -252,6 +258,13 @@ export async function iniciarServidor(opcoes: OpcoesServidor): Promise<ServidorS
       case 'encerrar':
         sessoes.encerrar(registrada, mensagem.motivo ?? 'encerrada_pelo_parceiro');
         return;
+      case 'retomar':
+        sessoes.retomar(registrada, mensagem.parceiro, mensagem.papel, mensagem.porSenha);
+        return;
+      case 'ping':
+        registrada.viva = true;
+        enviar(registrada, { tipo: 'pong' });
+        return;
     }
   }
 
@@ -289,8 +302,8 @@ export async function iniciarServidor(opcoes: OpcoesServidor): Promise<ServidorS
     socket.on('close', () => {
       clearTimeout(prazo);
       conexoes.delete(conexao);
-      // Avisa o outro lado de um pedido ou sessão em andamento.
-      sessoes.encerrar(conexao, 'parceiro_desconectou');
+      // Pedido em andamento acaba; sessão fica esperando a retomada.
+      sessoes.desconectou(conexao);
       // Só libera o ID se ele ainda for desta conexão (e não de uma que a substituiu).
       if (conexao.id && registrados.get(conexao.id) === conexao) {
         registrados.delete(conexao.id);

@@ -21,6 +21,7 @@ export function montarTelaVisualizacao(opcoes: OpcoesTelaVisualizacao): TelaVisu
   const secao = elemento<HTMLElement>('#tela-remota');
   const video = elemento<HTMLVideoElement>('#video-remoto');
   const aguardando = elemento<HTMLParagraphElement>('#aguardando-video');
+  const reconectando = elemento<HTMLParagraphElement>('#reconectando-video');
   const controle = montarControleRemoto(video, opcoes.aoInput);
 
   // Some o aviso assim que o primeiro quadro tem tamanho conhecido.
@@ -36,6 +37,7 @@ export function montarTelaVisualizacao(opcoes: OpcoesTelaVisualizacao): TelaVisu
       secao.hidden = !visivel;
       document.body.dataset['tela'] = visivel ? 'remota' : 'inicio';
       controle.definirAtivo(visivel);
+      reconectando.hidden = !(visivel && estado.reconectandoAte !== null);
     },
     definirVideo(stream) {
       video.srcObject = stream;

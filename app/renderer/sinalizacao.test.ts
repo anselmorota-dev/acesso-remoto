@@ -2,11 +2,16 @@
 // que tem o mesmo WebSocket global do navegador.
 import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
-import { novaIdentidade, type IdentidadeTeste } from '@acesso-remoto/server/auxiliares-teste';
+import { iniciarServidorCalado, novaIdentidade, type IdentidadeTeste } from '@acesso-remoto/server/auxiliares-teste';
 import { InstalacoesEmMemoria } from '@acesso-remoto/server/instalacoes';
 import { iniciarServidor, type OpcoesServidor, type ServidorSinalizacao } from '@acesso-remoto/server/servidor';
 import { PROTOCOL_VERSION } from '@acesso-remoto/shared';
-import { ClienteSinalizacao, type EstadoSinalizacao, type IdentidadeCliente } from './sinalizacao';
+import {
+  ClienteSinalizacao,
+  type EstadoSinalizacao,
+  type IdentidadeCliente,
+  type OpcoesSinalizacao,
+} from './sinalizacao';
 
 const limpezas: Array<() => unknown> = [];
 afterEach(async () => {
@@ -28,7 +33,7 @@ function identidadeCliente(identidade: IdentidadeTeste = novaIdentidade()): Iden
 }
 
 /** Cria um cliente que registra todos os estados pelos quais passou. */
-function criarCliente(url: string, extras: { versaoProtocolo?: number; identidade?: IdentidadeCliente } = {}) {
+function criarCliente(url: string, extras: Partial<OpcoesSinalizacao> = {}) {
   const estados: EstadoSinalizacao[] = [];
   const cliente = new ClienteSinalizacao({
     url,
@@ -137,6 +142,63 @@ test('parar fecha a conexão e não tenta reconectar', async () => {
   await new Promise((r) => setTimeout(r, 200)); // tempo de sobra para uma reconexão indevida
   assert.equal(estados.at(-1)?.fase, 'online');
   assert.equal(servidor.quantidadeRegistrados(), 0);
+});
+
+test('com o servidor respondendo, o ping mantém a conexão sem reconectar', async () => {
+  const servidor = await subirServidor();
+  const { cliente, estados } = criarCliente(`ws://127.0.0.1:${servidor.porta}`, {
+    intervaloPingMs: 20,
+    prazoSilencioMs: 100,
+  });
+  cliente.iniciar();
+  await aguardar(() => cliente.estado.fase === 'online');
+  await new Promise((r) => setTimeout(r, 400));
+  assert.deepEqual(
+    estados.map((e) => e.fase),
+    ['conectando', 'online'],
+  );
+});
+
+test('servidor calado demais (rede caída em silêncio): a conexão é dada como morta e o app reconecta', async () => {
+  const calado = await iniciarServidorCalado();
+  limpezas.push(() => calado.fechar());
+  const { cliente, estados } = criarCliente(`ws://127.0.0.1:${calado.porta}`, {
+    intervaloPingMs: 20,
+    prazoSilencioMs: 100,
+  });
+  cliente.iniciar();
+  await aguardar(() => estados.filter((e) => e.fase === 'online').length >= 2);
+  assert.deepEqual(
+    estados.slice(0, 4).map((e) => e.fase),
+    ['conectando', 'online', 'offline', 'conectando'],
+  );
+  assert.ok(calado.conexoes() >= 2);
+});
+
+test('verificarConexao: sem resposta no prazo curto, reconecta na hora', async () => {
+  const calado = await iniciarServidorCalado();
+  limpezas.push(() => calado.fechar());
+  const { cliente, estados } = criarCliente(`ws://127.0.0.1:${calado.porta}`, {
+    // Ping periódico longo: só a verificação pedida pode perceber a queda.
+    intervaloPingMs: 60_000,
+    prazoSilencioMs: 120_000,
+    prazoVerificacaoMs: 50,
+  });
+  cliente.iniciar();
+  await aguardar(() => cliente.estado.fase === 'online');
+  cliente.verificarConexao();
+  await aguardar(() => estados.some((e) => e.fase === 'offline'), 1000);
+});
+
+test('verificarConexao com o servidor respondendo não derruba nada', async () => {
+  const servidor = await subirServidor();
+  const { cliente, estados } = criarCliente(`ws://127.0.0.1:${servidor.porta}`, { prazoVerificacaoMs: 50 });
+  cliente.iniciar();
+  await aguardar(() => cliente.estado.fase === 'online');
+  cliente.verificarConexao();
+  await new Promise((r) => setTimeout(r, 200));
+  assert.equal(estados.at(-1)?.fase, 'online');
+  assert.equal(estados.length, 2);
 });
 
 test('versão incompatível para as tentativas e avisa o motivo', async () => {

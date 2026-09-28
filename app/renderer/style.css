@@ -179,6 +179,10 @@ button:disabled {
   border-left-color: var(--ok);
 }
 
+.painel[data-fase='em_sessao'][data-conexao='reconectando'] {
+  border-left-color: var(--alerta);
+}
+
 .painel-texto {
   flex: 1;
   margin: 0;
@@ -315,6 +319,25 @@ button:disabled {
 }
 
 .aguardando-video[hidden] {
+  display: none;
+}
+
+/* Faixa sobre a imagem congelada enquanto a conexão direta é refeita. */
+.reconectando-video {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  margin: 0;
+  padding: 8px 16px;
+  border-radius: 8px;
+  background: rgb(0 0 0 / 0.75);
+  color: #fff;
+  font-weight: 600;
+  pointer-events: none;
+}
+
+.reconectando-video[hidden] {
   display: none;
 }
 

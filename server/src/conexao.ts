@@ -13,7 +13,25 @@ export type Vinculo =
   | { tipo: 'pedindo'; anfitriao: Conexao; prazo: ReturnType<typeof setTimeout> }
   /** Anfitrião com um pedido para responder. */
   | { tipo: 'pedido_recebido'; visualizador: Conexao; comSenha: boolean }
-  | { tipo: 'em_sessao'; parceiro: Conexao; papel: Papel; porSenha: boolean };
+  | { tipo: 'em_sessao'; parceiro: Conexao; papel: Papel; porSenha: boolean }
+  /**
+   * Em sessão com alguém que não está ligado a esta conexão agora: o parceiro
+   * caiu do servidor, ou esta conexão voltou (queda, reinício do servidor) e
+   * declarou a sessão com "retomar". A conexão direta segue sem o servidor;
+   * quando o parceiro declarar a mesma sessão, os dois voltam a "em_sessao".
+   * Enquanto isso, conta como ocupado. "prazo": o parceiro já voltou ao
+   * servidor e tem esse tempo para declarar a sessão (senão ela acabou).
+   * "ipParceiro": IP de quem saiu (se foi ele que caiu), para ainda contar
+   * uma senha recusada nesse meio-tempo (limite contra força bruta).
+   */
+  | {
+      tipo: 'retomando';
+      parceiro: IdCliente;
+      papel: Papel;
+      porSenha: boolean;
+      ipParceiro: string | null;
+      prazo: ReturnType<typeof setTimeout> | undefined;
+    };
 
 export interface Conexao {
   readonly socket: WebSocket;

@@ -130,6 +130,27 @@ test('heartbeat derruba conexões que não respondem ao ping', async () => {
   assert.equal(saudavel.socket.readyState, WebSocket.OPEN);
 });
 
+test('ping do app recebe pong (o app usa isso para saber que a conexão está viva)', async () => {
+  const cliente = await conectarRegistrado();
+  cliente.enviar({ tipo: 'ping' });
+  assert.deepEqual(await cliente.proxima(), { tipo: 'pong' });
+});
+
+test('ping do app também mantém viva uma conexão cujo ping do WebSocket não volta', async () => {
+  // O app manda o seu ping a cada 20 s; o heartbeat do servidor é de 30 s.
+  await servidor.fechar();
+  await subir({ intervaloHeartbeatMs: 100 });
+  const cliente = await conectar({ autoPong: false });
+  await completarRegistro(cliente, novaIdentidade());
+  const pingar = setInterval(() => cliente.enviar({ tipo: 'ping' }), 30);
+  try {
+    await new Promise((r) => setTimeout(r, 400));
+    assert.equal(cliente.socket.readyState, WebSocket.OPEN);
+  } finally {
+    clearInterval(pingar);
+  }
+});
+
 // ---------------------------------------------------------------------------
 // ID fixo por instalação (identidade com chave pública + desafio)
 // ---------------------------------------------------------------------------

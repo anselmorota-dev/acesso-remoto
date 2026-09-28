@@ -10,12 +10,17 @@
 //
 // O anfitrião captura a tela e adiciona a trilha de vídeo antes de criar a
 // oferta, então o vídeo já entra na primeira negociação.
+//
+// Sessões longas: se a rede de um dos lados muda, a conexão direta cai; o
+// anfitrião então renegocia os caminhos de rede (ICE restart: nova oferta
+// pelo servidor) sem desfazer a sessão, o canal nem a criptografia.
 import {
   TAMANHO_MAXIMO_MENSAGEM_CANAL,
   decodificarMensagem,
   esquemaMensagemCanal,
   type EventoInput,
   type MensagemCanal,
+  type MotivoFimPeloCanal,
   type Papel,
   type Sinal,
 } from '@acesso-remoto/shared';
@@ -37,6 +42,10 @@ export interface OpcoesPar {
   aoReceberSenha?: (senha: string) => void;
   /** Visualizador (sessão por senha): o anfitrião confirmou a senha. */
   aoAutenticado?: () => void;
+  /** O outro lado avisou pelo canal que a sessão acabou (com o motivo, se foi falha). */
+  aoEncerrarPeloParceiro?: (motivo: MotivoFimPeloCanal | undefined) => void;
+  /** O canal fechou sem aviso (o outro lado fechou a conexão ou ela se perdeu de vez). */
+  aoPerderCanal?: () => void;
 }
 
 /** O que o controlador de sessão precisa de uma conexão (permite trocar por um falso nos testes). */
@@ -51,8 +60,17 @@ export interface Par {
   enviarSenha(senha: string): void;
   /** Anfitrião: avisa que a senha conferiu. */
   confirmarAutenticacao(): void;
-  fechar(): void;
+  /** Anfitrião: renegocia os caminhos de rede depois de a conexão direta cair. */
+  reiniciarIce(): Promise<void>;
+  /**
+   * Fecha a conexão. Com "aviso", antes manda pelo canal que a sessão acabou
+   * (o outro lado fica sabendo mesmo com o servidor fora do ar).
+   */
+  fechar(aviso?: { motivo?: MotivoFimPeloCanal }): void;
 }
+
+/** Tempo máximo esperando o aviso de fim sair pelo canal antes de fechar a conexão. */
+const ESPERA_AVISO_FIM_MS = 1000;
 
 // STUN: cada lado pergunta a um servidor público "qual é meu endereço visto
 // de fora?" e envia esse endereço como candidato ICE. Isso permite a conexão
@@ -165,7 +183,21 @@ export class ConexaoPar implements Par {
     this.enviarNoCanal({ tipo: 'autenticado' });
   }
 
+  /**
+   * Anfitrião: nova oferta com credenciais ICE novas, para os dois lados
+   * procurarem caminhos de rede outra vez (ex.: um deles trocou de Wi-Fi).
+   * A conexão continua a mesma: canal, vídeo e criptografia não mudam.
+   */
+  async reiniciarIce(): Promise<void> {
+    if (this.opcoes.papel !== 'anfitriao' || this.estado === 'fechado') return;
+    // Uma renegociação por vez: se a anterior ainda espera resposta, aguarda.
+    if (this.pc.signalingState !== 'stable') return;
+    await this.pc.setLocalDescription(await this.pc.createOffer({ iceRestart: true }));
+    this.enviarDescricaoLocal();
+  }
+
   async receberSinal(sinal: Sinal): Promise<void> {
+    if (this.estado === 'fechado') return;
     switch (sinal.tipo) {
       case 'oferta':
         if (this.opcoes.papel !== 'visualizador') return; // só o visualizador aceita ofertas
@@ -176,12 +208,14 @@ export class ConexaoPar implements Par {
         break;
       case 'resposta':
         if (this.opcoes.papel !== 'anfitriao') return;
+        // Resposta atrasada (de uma oferta que já foi respondida) não vale mais.
+        if (this.pc.signalingState !== 'have-local-offer') return;
         await this.pc.setRemoteDescription({ type: 'answer', sdp: sinal.sdp });
         await this.aplicarCandidatosPendentes();
         break;
       case 'ice':
         // Um candidato só pode ser aplicado depois da descrição remota.
-        if (this.pc.remoteDescription) await this.pc.addIceCandidate(sinal.candidato);
+        if (this.pc.remoteDescription) await this.aplicarCandidato(sinal.candidato);
         else this.candidatosPendentes.push(sinal.candidato);
         break;
     }
@@ -191,14 +225,33 @@ export class ConexaoPar implements Par {
     this.enviarNoCanal(evento);
   }
 
-  fechar(): void {
+  fechar(aviso?: { motivo?: MotivoFimPeloCanal }): void {
+    if (this.estado === 'fechado') return;
     clearInterval(this.timerPing);
-    // Parar as trilhas é o que desliga a captura da tela de fato.
+    // Parar as trilhas é o que desliga a captura da tela de fato (na hora,
+    // mesmo que a conexão ainda espere o aviso de fim sair).
     if (this.telaLocal) pararCaptura(this.telaLocal);
     this.telaLocal = null;
+    this.mudarEstado('fechado');
+
+    const canal = this.canal;
+    if (aviso && canal?.readyState === 'open') {
+      canal.send(JSON.stringify({ tipo: 'encerrar', motivo: aviso.motivo } satisfies MensagemCanal));
+      // Fechar a conexão agora descartaria o aviso ainda na fila: espera ele sair.
+      const limite = Date.now() + ESPERA_AVISO_FIM_MS;
+      const fecharQuandoSair = () => {
+        if (canal.bufferedAmount > 0 && Date.now() < limite) setTimeout(fecharQuandoSair, 20);
+        else setTimeout(() => this.fecharConexao(), 250); // folga para a entrega pela rede
+      };
+      fecharQuandoSair();
+    } else {
+      this.fecharConexao();
+    }
+  }
+
+  private fecharConexao(): void {
     this.canal?.close();
     this.pc.close();
-    this.mudarEstado('fechado');
   }
 
   private mudarEstado(estado: EstadoPar): void {
@@ -216,7 +269,19 @@ export class ConexaoPar implements Par {
 
   private async aplicarCandidatosPendentes(): Promise<void> {
     for (const candidato of this.candidatosPendentes.splice(0)) {
+      await this.aplicarCandidato(candidato);
+    }
+  }
+
+  /**
+   * Um candidato ruim não derruba a sessão: depois de um ICE restart, podem
+   * chegar atrasados candidatos da rodada anterior, que não valem mais.
+   */
+  private async aplicarCandidato(candidato: RTCIceCandidateInit): Promise<void> {
+    try {
       await this.pc.addIceCandidate(candidato);
+    } catch (erro) {
+      console.warn('[par] candidato ICE ignorado:', erro);
     }
   }
 
@@ -233,7 +298,12 @@ export class ConexaoPar implements Par {
         this.senhaPendente = null;
       }
     });
-    canal.addEventListener('close', () => clearInterval(this.timerPing));
+    canal.addEventListener('close', () => {
+      clearInterval(this.timerPing);
+      // Fechado por nós (fechar) é o esperado; sem isso, o outro lado fechou
+      // a conexão ou ela se perdeu de vez (não há como reabrir o canal).
+      if (this.estado !== 'fechado') this.opcoes.aoPerderCanal?.();
+    });
     canal.addEventListener('message', (evento) => this.aoMensagemCanal(evento.data));
   }
 
@@ -242,6 +312,7 @@ export class ConexaoPar implements Par {
   }
 
   private aoMensagemCanal(dados: unknown): void {
+    if (this.estado === 'fechado') return; // a sessão acabou: nada mais vale
     // Regra de segurança: tudo que chega pelo canal é validado e limitado.
     if (typeof dados !== 'string' || dados.length > TAMANHO_MAXIMO_MENSAGEM_CANAL) return;
     const mensagem = decodificarMensagem(esquemaMensagemCanal, dados);
@@ -262,6 +333,9 @@ export class ConexaoPar implements Par {
         break;
       case 'autenticado':
         if (this.opcoes.papel === 'visualizador') this.opcoes.aoAutenticado?.();
+        break;
+      case 'encerrar':
+        this.opcoes.aoEncerrarPeloParceiro?.(mensagem.motivo);
         break;
       default:
         // Todo o resto é evento de input (mouse e teclado); o TypeScript

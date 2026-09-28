@@ -5,11 +5,18 @@
 // partir daí (e só então) o servidor repassa sinais WebRTC entre eles.
 // Isso impede que alguém mande sinalização para um ID qualquer: os
 // candidatos ICE revelam o IP, então só circulam depois do aceite.
+//
+// Sessões longas: depois de conectados, vídeo e comandos vão direto entre os
+// dois computadores, então a sessão sobrevive a uma queda do servidor (ou de
+// um dos lados em relação a ele). Quem fica fica "retomando"; quem volta
+// declara a sessão com "retomar"; quando os dois lados declaram a mesma
+// sessão, o servidor os liga de novo ("sessao_retomada").
 import type {
   CodigoErro,
   IdCliente,
   MensagemDoServidor,
   MotivoEncerramento,
+  Papel,
   Sinal,
 } from '@acesso-remoto/shared';
 import type { Conexao, ConexaoRegistrada } from './conexao.js';
@@ -21,19 +28,44 @@ export interface OpcoesSessoes {
   enviarErro: (conexao: Conexao, codigo: CodigoErro, mensagem: string) => void;
   /** Quanto tempo o anfitrião tem para aceitar ou recusar. */
   prazoRespostaMs: number;
+  /**
+   * Quanto tempo quem voltou ao servidor tem para declarar a sessão em que
+   * estava ("retomar"). O app declara logo depois de se registrar; se não
+   * declarar, é porque a sessão acabou do lado dele (ex.: o app foi reaberto).
+   */
+  prazoRetomadaMs: number;
   /** Bloqueio de quem erra a senha demais (o servidor sabe pelo motivo do encerramento). */
   limites: Pick<LimitesServidor, 'podeTentarSenha' | 'falhaSenha'>;
   log: (mensagem: string) => void;
 }
 
 export function criarGerenciadorSessoes(opcoes: OpcoesSessoes) {
-  const { registrados, enviar, enviarErro, prazoRespostaMs, limites, log } = opcoes;
+  const { registrados, enviar, enviarErro, prazoRespostaMs, prazoRetomadaMs, limites, log } = opcoes;
 
   function liberar(...conexoes: Conexao[]): void {
     for (const conexao of conexoes) {
-      if (conexao.vinculo.tipo === 'pedindo') clearTimeout(conexao.vinculo.prazo);
+      const vinculo = conexao.vinculo;
+      if (vinculo.tipo === 'pedindo' || vinculo.tipo === 'retomando') clearTimeout(vinculo.prazo);
       conexao.vinculo = { tipo: 'livre' };
     }
+  }
+
+  /** Encerra a sessão de quem esperava um parceiro que não vai mais retomá-la. */
+  function desistirDaRetomada(conexao: Conexao): void {
+    if (conexao.vinculo.tipo !== 'retomando') return;
+    const parceiro = conexao.vinculo.parceiro;
+    liberar(conexao);
+    enviar(conexao, { tipo: 'sessao_encerrada', motivo: 'parceiro_desconectou' });
+    log(`[server] sessão ${conexao.id} ↔ ${parceiro} encerrada: o parceiro voltou sem ela`);
+  }
+
+  /** O parceiro esperado já está no servidor: ele tem um prazo para declarar a sessão. */
+  function iniciarPrazoRetomada(conexao: Conexao): void {
+    const vinculo = conexao.vinculo;
+    if (vinculo.tipo !== 'retomando' || vinculo.prazo) return;
+    vinculo.prazo = setTimeout(() => {
+      if (conexao.vinculo === vinculo) desistirDaRetomada(conexao);
+    }, prazoRetomadaMs);
   }
 
   function conectar(visualizador: ConexaoRegistrada, destino: IdCliente, comSenha: boolean): void {
@@ -57,6 +89,11 @@ export function criarGerenciadorSessoes(opcoes: OpcoesSessoes) {
     if (!anfitriao) {
       enviar(visualizador, { tipo: 'pedido_recusado', destino, motivo: 'offline' });
       return;
+    }
+    // O destino ainda espera retomar uma sessão com quem está pedindo agora:
+    // se este lado pede uma conexão nova, a antiga já acabou para ele.
+    if (anfitriao.vinculo.tipo === 'retomando' && anfitriao.vinculo.parceiro === visualizador.id) {
+      desistirDaRetomada(anfitriao);
     }
     if (anfitriao.vinculo.tipo !== 'livre') {
       enviar(visualizador, { tipo: 'pedido_recusado', destino, motivo: 'ocupado' });
@@ -106,6 +143,56 @@ export function criarGerenciadorSessoes(opcoes: OpcoesSessoes) {
     log(`[server] sessão iniciada ${origem} → ${anfitriao.id}${sessaoPorSenha ? ' (por senha)' : ''}`);
   }
 
+  /**
+   * Quem voltou ao servidor declara a sessão em que continua. Só religa quando
+   * os DOIS lados declaram a mesma sessão (um o parceiro do outro, papéis
+   * opostos): ninguém consegue se ligar a um ID que não o espera. O ID de cada
+   * lado já foi provado pela chave da instalação.
+   */
+  function retomar(conexao: ConexaoRegistrada, parceiro: IdCliente, papel: Papel, porSenha: boolean): void {
+    if (conexao.vinculo.tipo !== 'livre') {
+      enviarErro(conexao, 'ja_em_sessao', 'Já existe um pedido ou sessão em andamento');
+      return;
+    }
+    if (parceiro === conexao.id) {
+      enviarErro(conexao, 'destino_invalido', 'Uma sessão não pode ser com o próprio computador');
+      return;
+    }
+
+    const outra = registrados.get(parceiro);
+    const espera = outra?.vinculo;
+    if (
+      outra &&
+      espera?.tipo === 'retomando' &&
+      espera.parceiro === conexao.id &&
+      espera.papel !== papel &&
+      espera.porSenha === porSenha
+    ) {
+      clearTimeout(espera.prazo);
+      conexao.vinculo = { tipo: 'em_sessao', parceiro: outra, papel, porSenha };
+      outra.vinculo = { tipo: 'em_sessao', parceiro: conexao, papel: espera.papel, porSenha };
+      enviar(conexao, { tipo: 'sessao_retomada', parceiro });
+      enviar(outra, { tipo: 'sessao_retomada', parceiro: conexao.id });
+      log(`[server] sessão retomada ${conexao.id} ↔ ${parceiro}`);
+      return;
+    }
+
+    // O parceiro ainda não voltou (ou não declarou ainda): espera por ele.
+    conexao.vinculo = { tipo: 'retomando', parceiro, papel, porSenha, ipParceiro: null, prazo: undefined };
+    // Se ele já está no servidor, tem um prazo para declarar a sessão.
+    if (outra) iniciarPrazoRetomada(conexao);
+  }
+
+  /** Uma instalação acabou de se registrar: quem esperava por ela começa a contar o prazo. */
+  function aoRegistrar(conexao: ConexaoRegistrada): void {
+    // Poucos apps online: percorrer todos é simples e barato.
+    for (const outra of registrados.values()) {
+      if (outra.vinculo.tipo === 'retomando' && outra.vinculo.parceiro === conexao.id) {
+        iniciarPrazoRetomada(outra);
+      }
+    }
+  }
+
   function repassarSinal(conexao: Conexao, sinal: Sinal): void {
     if (conexao.vinculo.tipo !== 'em_sessao') {
       enviarErro(conexao, 'sem_sessao', 'Sinal WebRTC fora de uma sessão');
@@ -114,10 +201,7 @@ export function criarGerenciadorSessoes(opcoes: OpcoesSessoes) {
     enviar(conexao.vinculo.parceiro, { tipo: 'sinal', sinal });
   }
 
-  /**
-   * Desfaz o vínculo da conexão, avisando o outro lado.
-   * Usado tanto no "encerrar" quanto quando a conexão cai.
-   */
+  /** Desfaz o pedido ou a sessão da conexão (pedido do app), avisando o outro lado. */
   function encerrar(conexao: Conexao, motivo: MotivoEncerramento): void {
     const vinculo = conexao.vinculo;
     switch (vinculo.tipo) {
@@ -142,8 +226,7 @@ export function criarGerenciadorSessoes(opcoes: OpcoesSessoes) {
         // O anfitrião recusou a senha: conta um erro para o IP de quem tentou.
         // Só vale em sessão por senha (senão um anfitrião com defeito poderia
         // "acusar" quem ele aceitou manualmente).
-        const senhaRecusada = motivo === 'senha_incorreta' || motivo === 'senha_bloqueada';
-        if (senhaRecusada && vinculo.papel === 'anfitriao' && vinculo.porSenha && conexao.id) {
+        if (senhaRecusada(motivo) && vinculo.papel === 'anfitriao' && vinculo.porSenha && conexao.id) {
           limites.falhaSenha(vinculo.parceiro.ip, conexao.id);
         }
         liberar(conexao, vinculo.parceiro);
@@ -151,8 +234,52 @@ export function criarGerenciadorSessoes(opcoes: OpcoesSessoes) {
         log(`[server] sessão encerrada ${conexao.id} ↔ ${vinculo.parceiro.id} (${motivo})`);
         return;
       }
+      case 'retomando':
+        // Senha recusada enquanto o visualizador está fora do servidor (ex.:
+        // saiu de propósito logo depois de conectar): ainda conta o erro.
+        if (senhaRecusada(motivo) && vinculo.papel === 'anfitriao' && vinculo.porSenha && vinculo.ipParceiro && conexao.id) {
+          limites.falhaSenha(vinculo.ipParceiro, conexao.id);
+        }
+        // O parceiro não está ligado a esta conexão: não há a quem avisar aqui
+        // (se a conexão direta ainda existir, o app avisa por ela).
+        liberar(conexao);
+        log(`[server] sessão encerrada ${conexao.id} ↔ ${vinculo.parceiro} (${motivo}, sem o parceiro no servidor)`);
+        return;
     }
   }
 
-  return { conectar, responder, repassarSinal, encerrar };
+  /**
+   * A conexão caiu (ou foi substituída por uma nova da mesma instalação).
+   * Pedidos acabam; sessões não: o parceiro passa a esperar a retomada.
+   */
+  function desconectou(conexao: Conexao): void {
+    const vinculo = conexao.vinculo;
+    if (vinculo.tipo === 'em_sessao' && conexao.id) {
+      const parceiro = vinculo.parceiro;
+      if (parceiro.vinculo.tipo !== 'em_sessao') return; // não deveria acontecer
+      liberar(conexao);
+      parceiro.vinculo = {
+        tipo: 'retomando',
+        parceiro: conexao.id,
+        papel: parceiro.vinculo.papel,
+        porSenha: vinculo.porSenha,
+        ipParceiro: conexao.ip,
+        prazo: undefined,
+      };
+      enviar(parceiro, { tipo: 'parceiro_ausente', parceiro: conexao.id });
+      log(`[server] ${conexao.id} saiu no meio da sessão com ${parceiro.id}: aguardando a retomada`);
+      return;
+    }
+    if (vinculo.tipo === 'retomando') {
+      liberar(conexao);
+      return;
+    }
+    encerrar(conexao, 'parceiro_desconectou');
+  }
+
+  return { conectar, responder, retomar, aoRegistrar, repassarSinal, encerrar, desconectou };
+}
+
+function senhaRecusada(motivo: MotivoEncerramento): boolean {
+  return motivo === 'senha_incorreta' || motivo === 'senha_bloqueada';
 }

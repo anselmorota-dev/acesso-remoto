@@ -5,6 +5,7 @@
 import assert from 'node:assert/strict';
 import { afterEach, beforeEach, test } from 'node:test';
 import { novaIdentidade } from '@acesso-remoto/server/auxiliares-teste';
+import { InstalacoesEmMemoria } from '@acesso-remoto/server/instalacoes';
 import { iniciarServidor, type ServidorSinalizacao } from '@acesso-remoto/server/servidor';
 import type { EventoInput, Sinal } from '@acesso-remoto/shared';
 import { ErroCaptura } from './captura';
@@ -24,6 +25,9 @@ class ParFalso implements Par {
   telaLiberada = false;
   autenticacaoConfirmada = false;
   fechado = false;
+  /** O que foi pedido ao fechar: aviso pelo canal (e o motivo) ou nenhum aviso. */
+  avisoAoFechar: { motivo?: string } | undefined;
+  reiniciosIce = 0;
   constructor(readonly opcoes: OpcoesPar) {}
   async iniciar() {
     this.iniciado = true;
@@ -47,24 +51,52 @@ class ParFalso implements Par {
   confirmarAutenticacao() {
     this.autenticacaoConfirmada = true;
   }
-  fechar() {
+  async reiniciarIce() {
+    // Como o real: uma oferta nova, que o servidor repassa ao visualizador.
+    this.reiniciosIce++;
+    this.opcoes.enviarSinal({ tipo: 'oferta', sdp: `oferta-reinicio-${this.reiniciosIce}` });
+  }
+  fechar(aviso?: { motivo?: string }) {
     this.fechado = true;
+    this.avisoAoFechar = aviso;
+  }
+  /** Simula a conexão direta passando a funcionar. */
+  conectar() {
+    this.opcoes.aoMudarEstado('conectado');
   }
 }
 
-/** Como o anfitrião falso responde à senha (no app, quem confere é o main). */
+/** Como o anfitrião falso responde à senha (no app, quem confere é o main), e prazos. */
 interface OpcoesApp {
   senhaDefinida?: boolean;
   senhaCerta?: string;
   bloqueado?: boolean;
   prazoSenhaMs?: number;
+  prazoReconexaoMs?: number;
+  intervaloReinicioIceMs?: number;
+  esperaCanalPerdidoMs?: number;
 }
 
 let servidor: ServidorSinalizacao;
+/** Os IDs sobrevivem a um reinício do servidor (em produção, no banco). */
+let instalacoes: InstalacoesEmMemoria;
 const limpezas: Array<() => void> = [];
 
+async function subirServidor(porta = 0): Promise<void> {
+  servidor = await iniciarServidor({ porta, log: () => {}, prazoRespostaPedidoMs: 5000, instalacoes });
+}
+
+/** Derruba o servidor e o sobe de novo na mesma porta (como um reinício no Render). */
+async function reiniciarServidor(entreUmEOutro?: () => Promise<void>): Promise<void> {
+  const porta = servidor.porta;
+  await servidor.fechar();
+  await entreUmEOutro?.();
+  await subirServidor(porta);
+}
+
 beforeEach(async () => {
-  servidor = await iniciarServidor({ porta: 0, log: () => {}, prazoRespostaPedidoMs: 5000 });
+  instalacoes = new InstalacoesEmMemoria();
+  await subirServidor();
 });
 
 afterEach(async () => {
@@ -80,6 +112,7 @@ async function criarApp(opcoesApp: OpcoesApp = {}) {
   const videos: Array<MediaStream | null> = [];
   const inputs: EventoInput[] = [];
   let liberacoes = 0;
+  let verificacoesServidor = 0;
   let id = '';
   const identidade = novaIdentidade();
   const sinalizacao: ClienteSinalizacao = new ClienteSinalizacao({
@@ -89,9 +122,14 @@ async function criarApp(opcoesApp: OpcoesApp = {}) {
       assinarDesafio: async (desafio) => identidade.assinar(desafio),
     },
     esperasReconexaoMs: [50],
+    // Como no main.ts.
     aoMudarEstado: (estado) => {
-      if (estado.fase === 'online') id = estado.id;
-      else controlador.servidorPerdido();
+      if (estado.fase === 'online') {
+        id = estado.id;
+        controlador.servidorVoltou();
+      } else {
+        controlador.servidorPerdido();
+      }
     },
     aoMensagem: (mensagem) => controlador.receber(mensagem),
   });
@@ -112,11 +150,29 @@ async function criarApp(opcoesApp: OpcoesApp = {}) {
       return senha === opcoesApp.senhaCerta ? 'ok' : 'incorreta';
     },
     prazoSenhaMs: opcoesApp.prazoSenhaMs,
+    prazoReconexaoMs: opcoesApp.prazoReconexaoMs,
+    intervaloReinicioIceMs: opcoesApp.intervaloReinicioIceMs,
+    esperaCanalPerdidoMs: opcoesApp.esperaCanalPerdidoMs,
+    verificarServidor: () => verificacoesServidor++,
   });
   sinalizacao.iniciar();
-  limpezas.push(() => sinalizacao.parar());
+  // Parar também o controlador: timers de reconexão não podem sobrar entre testes.
+  limpezas.push(() => {
+    sinalizacao.parar();
+    controlador.encerrar();
+  });
   await aguardar(() => id !== '');
-  return { controlador, sinalizacao, estados, pares, videos, inputs, liberacoes: () => liberacoes, id: () => id };
+  return {
+    controlador,
+    sinalizacao,
+    estados,
+    pares,
+    videos,
+    inputs,
+    liberacoes: () => liberacoes,
+    verificacoesServidor: () => verificacoesServidor,
+    id: () => id,
+  };
 }
 
 type App = Awaited<ReturnType<typeof criarApp>>;
@@ -136,9 +192,9 @@ const aviso = (app: App) => {
 };
 
 /** Leva visualizador e anfitrião até a sessão iniciada. */
-async function emSessao() {
-  const visualizador = await criarApp();
-  const anfitriao = await criarApp();
+async function emSessao(opcoes: OpcoesApp = {}) {
+  const visualizador = await criarApp(opcoes);
+  const anfitriao = await criarApp(opcoes);
   visualizador.controlador.conectar(anfitriao.id());
   await aguardar(() => fase(anfitriao) === 'pedido_recebido');
   anfitriao.controlador.responderPedido(true);
@@ -236,13 +292,170 @@ test('falha na conexão direta encerra a sessão dos dois lados', async () => {
   assert.ok(anfitriao.pares[0]?.fechado);
 });
 
-test('se o servidor cai, a sessão termina e a conexão é fechada', async () => {
+test('se o servidor cai antes da conexão direta funcionar, a sessão termina', async () => {
   const { visualizador, anfitriao } = await emSessao();
   await servidor.fechar();
 
   await aguardar(() => fase(visualizador) === 'livre' && fase(anfitriao) === 'livre');
   assert.equal(aviso(visualizador), 'A conexão com o servidor caiu; a sessão foi encerrada.');
   assert.ok(visualizador.pares[0]?.fechado && anfitriao.pares[0]?.fechado);
+});
+
+// ---------------------------------------------------------------------------
+// Sessões longas (4.1): quedas do servidor e da conexão direta
+// ---------------------------------------------------------------------------
+
+/** Sessão com a conexão direta funcionando nos dois lados. */
+async function sessaoConectada(opcoes: OpcoesApp = {}) {
+  const apps = await emSessao(opcoes);
+  const parV = apps.visualizador.pares[0];
+  const parA = apps.anfitriao.pares[0];
+  assert.ok(parV && parA);
+  parV.conectar();
+  parA.conectar();
+  return { ...apps, parV, parA };
+}
+
+const reconectando = (app: App) => {
+  const estado = app.controlador.estado;
+  return estado.fase === 'em_sessao' && estado.reconectandoAte !== null;
+};
+
+test('servidor reinicia no meio da sessão: ela continua e os dois são religados', async () => {
+  const { visualizador, anfitriao, parV, parA } = await sessaoConectada();
+
+  await reiniciarServidor(async () => {
+    // Sem servidor: os dois seguem em sessão pela conexão direta.
+    await aguardar(() => visualizador.sinalizacao.estado.fase !== 'online' && anfitriao.sinalizacao.estado.fase !== 'online');
+    assert.equal(fase(visualizador), 'em_sessao');
+    assert.equal(fase(anfitriao), 'em_sessao');
+    assert.equal(parA.fechado || parV.fechado, false);
+    // A conexão direta cai também: sem servidor, ainda não dá para refazê-la.
+    parA.opcoes.aoMudarEstado('falhou');
+    assert.ok(reconectando(anfitriao));
+    assert.equal(parA.reiniciosIce, 0);
+  });
+
+  // O servidor voltou: os dois declaram a sessão, são religados e o
+  // anfitrião refaz a conexão direta (a oferta nova chega ao visualizador).
+  await aguardar(() => parV.sinaisRecebidos.some((s) => s.tipo === 'oferta' && s.sdp === 'oferta-reinicio-1'));
+  assert.equal(parA.reiniciosIce, 1);
+  parA.conectar();
+  assert.equal(reconectando(anfitriao), false);
+  assert.equal(fase(anfitriao), 'em_sessao');
+
+  // Encerrar pelo servidor funciona de novo.
+  visualizador.controlador.encerrar();
+  await aguardar(() => fase(anfitriao) === 'livre');
+  assert.equal(aviso(anfitriao), 'A sessão foi encerrada pelo outro computador.');
+});
+
+test('conexão direta cai: o anfitrião a refaz (ICE restart) e o controle volta', async () => {
+  const { visualizador, anfitriao, parV, parA } = await sessaoConectada();
+
+  parA.opcoes.aoMudarEstado('falhou');
+  parV.opcoes.aoMudarEstado('conectando'); // "disconnected" no visualizador
+  assert.ok(reconectando(anfitriao) && reconectando(visualizador));
+  // O anfitrião solta o que estivesse apertado e confere o servidor; tenta refazer já.
+  assert.equal(anfitriao.liberacoes(), 1);
+  assert.equal(anfitriao.verificacoesServidor(), 1);
+  assert.equal(parA.reiniciosIce, 1);
+  await aguardar(() => parV.sinaisRecebidos.some((s) => s.tipo === 'oferta' && s.sdp === 'oferta-reinicio-1'));
+  // A resposta do visualizador volta ao anfitrião pelo servidor.
+  await aguardar(() => parA.sinaisRecebidos.filter((s) => s.tipo === 'resposta').length === 2);
+
+  // Enquanto isso, o input do visualizador é descartado (nada fica na fila).
+  visualizador.controlador.enviarInput(clique);
+  assert.deepEqual(parV.inputsEnviados, []);
+
+  parA.conectar();
+  parV.conectar();
+  assert.equal(reconectando(anfitriao) || reconectando(visualizador), false);
+  visualizador.controlador.enviarInput(clique);
+  assert.deepEqual(parV.inputsEnviados, [clique]);
+});
+
+test('oscilação curta: o anfitrião só refaz a conexão se ela não voltar sozinha', async () => {
+  const { anfitriao, parA } = await sessaoConectada({ intervaloReinicioIceMs: 50 });
+  parA.opcoes.aoMudarEstado('conectando'); // "disconnected": costuma voltar sozinho
+  assert.equal(parA.reiniciosIce, 0);
+  await aguardar(() => parA.reiniciosIce >= 2); // e tenta de novo de tempos em tempos
+  parA.conectar();
+  const depois = parA.reiniciosIce;
+  await new Promise((r) => setTimeout(r, 150));
+  assert.equal(parA.reiniciosIce, depois, 'conectado de novo: para de tentar');
+  assert.equal(reconectando(anfitriao), false);
+});
+
+test('conexão direta que não volta no prazo encerra a sessão nos dois lados', async () => {
+  const { visualizador, anfitriao, parA } = await sessaoConectada({ prazoReconexaoMs: 100 });
+  parA.opcoes.aoMudarEstado('falhou');
+  await aguardar(() => fase(anfitriao) === 'livre');
+  assert.equal(aviso(anfitriao), 'A conexão direta caiu e não voltou a tempo; a sessão foi encerrada.');
+  assert.deepEqual(parA.avisoAoFechar, { motivo: 'falha_conexao' });
+  await aguardar(() => fase(visualizador) === 'livre');
+  assert.equal(aviso(visualizador), 'A conexão direta com o outro computador falhou.');
+});
+
+test('a primeira conexão direta que falha continua encerrando a sessão (sem reconexão)', async () => {
+  const { anfitriao } = await emSessao();
+  anfitriao.pares[0]?.opcoes.aoMudarEstado('falhou');
+  assert.equal(fase(anfitriao), 'livre');
+});
+
+test('encerrar avisa também pela conexão direta; senha recusada, só pelo servidor', async () => {
+  const { anfitriao, parA } = await sessaoConectada();
+  anfitriao.controlador.encerrar();
+  assert.deepEqual(parA.avisoAoFechar, {});
+
+  const comSenha = await sessaoComSenha({ senhaDefinida: true, senhaCerta: SENHA }, 'senha errada 999');
+  comSenha.parA.opcoes.aoReceberSenha?.('senha errada 999');
+  await aguardar(() => fase(comSenha.anfitriao) === 'livre');
+  assert.equal(comSenha.parA.fechado, true);
+  assert.equal(comSenha.parA.avisoAoFechar, undefined);
+});
+
+test('aviso de fim pela conexão direta encerra a sessão mesmo sem servidor', async () => {
+  const { visualizador, parV } = await sessaoConectada();
+  await servidor.fechar();
+  await aguardar(() => visualizador.sinalizacao.estado.fase !== 'online');
+  assert.equal(fase(visualizador), 'em_sessao');
+
+  parV.opcoes.aoEncerrarPeloParceiro?.(undefined);
+  assert.equal(fase(visualizador), 'livre');
+  assert.equal(aviso(visualizador), 'A sessão foi encerrada pelo outro computador.');
+  assert.ok(parV.fechado);
+});
+
+test('quem estava fora do servidor e recebe o fim pelo canal libera a espera no servidor', async () => {
+  const { visualizador, anfitriao, parA } = await sessaoConectada();
+  // O visualizador cai do servidor; o anfitrião fica esperando a retomada...
+  visualizador.sinalizacao.parar();
+  await new Promise((r) => setTimeout(r, 150)); // o servidor percebe a queda
+  // ...e o visualizador encerra pela conexão direta.
+  parA.opcoes.aoEncerrarPeloParceiro?.(undefined);
+  assert.equal(fase(anfitriao), 'livre');
+
+  // O anfitrião ficou livre também no servidor: aceita um pedido novo.
+  const outro = await criarApp();
+  outro.controlador.conectar(anfitriao.id());
+  await aguardar(() => fase(anfitriao) === 'pedido_recebido');
+});
+
+test('canal fechado sem aviso: espera o motivo pelo servidor antes de encerrar', async () => {
+  const { visualizador, parV, parA } = await sessaoComSenha({ senhaDefinida: true, senhaCerta: SENHA }, 'senha errada 999');
+  // A conexão fecha antes de o motivo (que vem pelo servidor) chegar.
+  parV.opcoes.aoPerderCanal?.();
+  parA.opcoes.aoReceberSenha?.('senha errada 999');
+  await aguardar(() => fase(visualizador) === 'livre');
+  assert.equal(aviso(visualizador), 'Senha incorreta.');
+});
+
+test('canal fechado sem aviso e sem motivo: encerra por falha', async () => {
+  const { visualizador, anfitriao, parV } = await sessaoConectada({ esperaCanalPerdidoMs: 50 });
+  parV.opcoes.aoPerderCanal?.();
+  await aguardar(() => fase(visualizador) === 'livre');
+  await aguardar(() => fase(anfitriao) === 'livre');
 });
 
 test('nova sessão funciona depois de encerrar a anterior', async () => {
