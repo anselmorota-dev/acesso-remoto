@@ -143,13 +143,13 @@ Decisões já tomadas:
   move o mouse e, a cada quadro recebido via requestVideoFrameCallback, confere se a seta já
   apareceu no alvo; anfitrião com a tela branca): antes mediana 92 ms, 90% até 141 ms, 29 fps;
   o buffer de reprodução do WebRTC segurava ~45–70 ms (mínimo imposto, com jitter real de 7 ms);
-   não muda nada (só define o mínimo). Mudanças: (1) :
-  field trial  (quadro exibido assim que
+  `jitterBufferTarget = 0` não muda nada (só define o mínimo). Mudanças: (1) `main/index.ts`:
+  field trial `WebRTC-ForcePlayoutDelay/min_ms:0,max_ms:0/` (quadro exibido assim que
   decodificado; custo: em rede instável o vídeo pode tremer mais); (2) captura até 60 fps; (3)
-  : movimento sai na hora (, na frequência real do mouse), no
+  `controle.ts`: movimento sai na hora (`pointerrawupdate`, na frequência real do mouse), no
   máximo um a cada 8 ms (~125/s, dentro do limite de 200 eventos/s do anfitrião); a rolagem
   continua agrupada por quadro. Depois: mediana 41 ms, 90% até 55 ms, ~56 fps. Descartado:
-  desenhar a seta localmente (como o AnyDesk) — o Chromium ignora  e a captura
+  desenhar a seta localmente (como o AnyDesk) — o Chromium ignora `cursor: 'never'` e a captura
   sempre inclui o cursor (voltariam as duas setas). Ideia seguinte, não medida (precisa de rede
   com perda): canal não confiável/sem ordem só para o "mover" (hoje, um pacote perdido segura
   os movimentos seguintes até a retransmissão).
