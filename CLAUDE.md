@@ -139,6 +139,20 @@ usuário): correção do travamento ao minimizar (processo de input, 0.1.1), com
 (0.1.2) e várias sessões em abas (0.2.0, protocolo v13).
 
 Decisões já tomadas:
+- Fluidez do mouse (pedido do usuário, 0.2.3). Medido (script de latência da seta: o visualizador
+  move o mouse e, a cada quadro recebido via requestVideoFrameCallback, confere se a seta já
+  apareceu no alvo; anfitrião com a tela branca): antes mediana 92 ms, 90% até 141 ms, 29 fps;
+  o buffer de reprodução do WebRTC segurava ~45–70 ms (mínimo imposto, com jitter real de 7 ms);
+   não muda nada (só define o mínimo). Mudanças: (1) :
+  field trial  (quadro exibido assim que
+  decodificado; custo: em rede instável o vídeo pode tremer mais); (2) captura até 60 fps; (3)
+  : movimento sai na hora (, na frequência real do mouse), no
+  máximo um a cada 8 ms (~125/s, dentro do limite de 200 eventos/s do anfitrião); a rolagem
+  continua agrupada por quadro. Depois: mediana 41 ms, 90% até 55 ms, ~56 fps. Descartado:
+  desenhar a seta localmente (como o AnyDesk) — o Chromium ignora  e a captura
+  sempre inclui o cursor (voltariam as duas setas). Ideia seguinte, não medida (precisa de rede
+  com perda): canal não confiável/sem ordem só para o "mover" (hoje, um pacote perdido segura
+  os movimentos seguintes até a retransmissão).
 - Faixa do topo compacta (pedido do usuário, 0.2.2): na tela remota, abas e painel ocupavam
   ~150 px. Agora `#barra-sessao` junta os dois; na tela inicial é `display: contents` (nada
   muda), na remota vira uma linha só na largura toda (~40 px): abas à esquerda, situação

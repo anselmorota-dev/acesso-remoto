@@ -19,7 +19,9 @@ export async function capturarTela(monitor: IdMonitor | null): Promise<Captura> 
   try {
     entregue = await window.api.monitores.preparar(monitor);
     tela = await navigator.mediaDevices.getDisplayMedia({
-      video: { frameRate: { ideal: 30, max: 30 } },
+      // Até 60 quadros/s: a seta do mouse (que vem no vídeo) anda mais lisa.
+      // Com o processador no limite, o WebRTC reduz sozinho.
+      video: { frameRate: { ideal: 60, max: 60 } },
       audio: false,
     });
   } catch (erro) {

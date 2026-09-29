@@ -27,6 +27,14 @@ import { configurarSenha } from './senha';
 const ID_DO_APP = 'br.dev.anselmorota.acessoremoto';
 if (app.isPackaged && process.platform === 'win32') app.setAppUserModelId(ID_DO_APP);
 
+// Latência do vídeo: por padrão o WebRTC segura cada quadro num buffer de
+// reprodução (medido: ~45–70 ms, mesmo numa rede com 1 ms de ida e volta) para
+// o vídeo sair "liso". Em acesso remoto, a seta do mouse (que vem no vídeo)
+// importa mais: com o "playout delay" zero o quadro aparece assim que é
+// decodificado. Medido nesta máquina: seta do mouse de 92 ms para 40 ms
+// (mediana). Custo: em rede instável o vídeo pode "tremer" mais.
+app.commandLine.appendSwitch('force-fieldtrials', 'WebRTC-ForcePlayoutDelay/min_ms:0,max_ms:0/');
+
 let janelaPrincipal: BrowserWindow | null = null;
 /** true depois do "Sair": aí fechar a janela encerra o app de verdade. */
 let saindo = false;

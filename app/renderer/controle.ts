@@ -83,6 +83,20 @@ export interface ControleRemoto {
   definirAtivo(ativo: boolean): void;
 }
 
+/**
+ * Intervalo mínimo entre dois "mover" enviados (~125 por segundo): o
+ * movimento sai assim que acontece, sem esperar o próximo quadro da tela, mas
+ * sem estourar o limite de eventos do anfitrião (200/s, com folga para
+ * cliques e teclas).
+ */
+export const INTERVALO_MOVIMENTO_MS = 8;
+
+/**
+ * "pointerrawupdate" chega na frequência real do mouse (o "mousemove" do
+ * Chromium vem agrupado por quadro da tela, até ~16 ms depois).
+ */
+const EVENTO_MOVIMENTO = typeof window !== 'undefined' && 'onpointerrawupdate' in window ? 'pointerrawupdate' : 'mousemove';
+
 export function montarControleRemoto(video: HTMLVideoElement, enviar: (evento: EventoInput) => void): ControleRemoto {
   const teclado = new TradutorTeclado();
   const enviarTodos = (eventos: EventoInput[]) => eventos.forEach(enviar);
@@ -92,6 +106,8 @@ export function montarControleRemoto(video: HTMLVideoElement, enviar: (evento: E
   let movimentoPendente: Ponto | null = null;
   let rolagemPendente = { dx: 0, dy: 0 };
   let quadroAgendado = false;
+  let ultimoMovimentoEm = -Infinity;
+  let timerMovimento: ReturnType<typeof setTimeout> | undefined;
 
   const pontoDe = (evento: MouseEvent, prender: boolean): Ponto | null => {
     const area = areaDaImagem(video.getBoundingClientRect(), video.videoWidth, video.videoHeight);
@@ -104,12 +120,30 @@ export function montarControleRemoto(video: HTMLVideoElement, enviar: (evento: E
     requestAnimationFrame(enviarPendentes);
   }
 
+  /** Envia o movimento pendente já, ou assim que passar o intervalo mínimo. */
+  function agendarMovimento(): void {
+    if (timerMovimento !== undefined) return; // já vai sair
+    const espera = INTERVALO_MOVIMENTO_MS - (performance.now() - ultimoMovimentoEm);
+    if (espera <= 0) {
+      enviarMovimento();
+      return;
+    }
+    timerMovimento = setTimeout(() => {
+      timerMovimento = undefined;
+      enviarMovimento();
+    }, espera);
+  }
+
+  function enviarMovimento(): void {
+    if (!movimentoPendente) return;
+    enviar({ tipo: 'mouse_mover', ...movimentoPendente });
+    movimentoPendente = null;
+    ultimoMovimentoEm = performance.now();
+  }
+
+  /** Rolagem: agrupada por quadro da tela (muitos eventos pequenos viram um). */
   function enviarPendentes(): void {
     quadroAgendado = false;
-    if (movimentoPendente) {
-      enviar({ tipo: 'mouse_mover', ...movimentoPendente });
-      movimentoPendente = null;
-    }
     const dx = limitarRolagem(rolagemPendente.dx);
     const dy = limitarRolagem(rolagemPendente.dy);
     rolagemPendente = { dx: 0, dy: 0 };
@@ -155,13 +189,13 @@ export function montarControleRemoto(video: HTMLVideoElement, enviar: (evento: E
     if (ponto) mudarBotao(botao, false, ponto);
   });
 
-  window.addEventListener('mousemove', (evento) => {
+  window.addEventListener(EVENTO_MOVIMENTO, (evento) => {
     // Fora da imagem, o movimento só conta durante um arraste (preso à borda).
-    const ponto = pontoDe(evento, pressionados.size > 0);
+    const ponto = pontoDe(evento as MouseEvent, pressionados.size > 0);
     if (!ponto) return;
     ultimoPonto = ponto;
     movimentoPendente = ponto;
-    agendarEnvio();
+    agendarMovimento();
   });
 
   // Se a janela perde o foco no meio de um arraste ou com uma tecla apertada
@@ -219,6 +253,8 @@ export function montarControleRemoto(video: HTMLVideoElement, enviar: (evento: E
       soltarTudo();
       ultimoPonto = null;
       movimentoPendente = null;
+      clearTimeout(timerMovimento);
+      timerMovimento = undefined;
       rolagemPendente = { dx: 0, dy: 0 };
     },
   };
