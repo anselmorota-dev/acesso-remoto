@@ -9,6 +9,8 @@ import { elemento } from './util';
 
 export interface TelaInicio {
   atualizar(estado: EstadoSinalizacao, sessao: EstadoSessao): void;
+  /** Mostra um aviso abaixo do formulário (ex.: senha salva que não decifrou). */
+  avisar(texto: string): void;
 }
 
 export interface OpcoesTelaInicio {
@@ -16,7 +18,7 @@ export interface OpcoesTelaInicio {
    * Chamado quando o usuário pede para acessar outro ID (já validado). Com
    * senha, é acesso não supervisionado; sem, o outro lado precisa aceitar.
    */
-  aoConectar: (idRemoto: IdCliente, senha?: string) => void;
+  aoConectar: (idRemoto: IdCliente, senha: string | undefined, salvar: { apelido: string } | null) => void;
 }
 
 export function montarTelaInicio(opcoes: OpcoesTelaInicio): TelaInicio {
@@ -28,6 +30,11 @@ export function montarTelaInicio(opcoes: OpcoesTelaInicio): TelaInicio {
   const campoSenha = elemento<HTMLInputElement>('#senha-remota');
   const botaoConectar = elemento<HTMLButtonElement>('#botao-conectar');
   const aviso = elemento<HTMLParagraphElement>('#aviso-conectar');
+  const caixaSalvar = elemento<HTMLInputElement>('#salvar-computador');
+  const grupoApelido = elemento<HTMLElement>('#grupo-apelido');
+  const campoApelido = elemento<HTMLInputElement>('#apelido-computador');
+  /** Aviso vindo de fora (fica até o próximo aviso do formulário). */
+  let avisoExterno = '';
 
   let estado: EstadoSinalizacao = { fase: 'conectando' };
   let sessao: EstadoSessao = { fase: 'livre' };
@@ -40,7 +47,9 @@ export function montarTelaInicio(opcoes: OpcoesTelaInicio): TelaInicio {
     const livre = sessao.fase === 'livre';
 
     botaoConectar.disabled = !online || !livre || !ehIdValido(digitos) || proprioId;
-    if (proprioId) {
+    if (avisoExterno) {
+      aviso.textContent = avisoExterno;
+    } else if (proprioId) {
       aviso.textContent = 'Esse é o ID deste computador.';
     } else if (digitos.length === 9 && !ehIdValido(digitos)) {
       aviso.textContent = 'ID inválido: não pode começar com 0.';
@@ -49,8 +58,14 @@ export function montarTelaInicio(opcoes: OpcoesTelaInicio): TelaInicio {
     }
   }
 
+  // Salvar este computador: o apelido só aparece com a caixa marcada.
+  caixaSalvar.addEventListener('change', () => {
+    grupoApelido.hidden = !caixaSalvar.checked;
+  });
+
   // Formata enquanto digita/cola: mantém só dígitos, agrupados de 3 em 3.
   campoRemoto.addEventListener('input', () => {
+    avisoExterno = '';
     campoRemoto.value = formatarId(extrairDigitos(campoRemoto.value));
     atualizarFormulario();
   });
@@ -62,7 +77,12 @@ export function montarTelaInicio(opcoes: OpcoesTelaInicio): TelaInicio {
     const senha = campoSenha.value;
     // A senha não fica na página depois de usada.
     campoSenha.value = '';
-    opcoes.aoConectar(digitos, senha || undefined);
+    const salvar = caixaSalvar.checked ? { apelido: campoApelido.value } : null;
+    caixaSalvar.checked = false;
+    campoApelido.value = '';
+    grupoApelido.hidden = true;
+    avisoExterno = '';
+    opcoes.aoConectar(digitos, senha || undefined, salvar);
   });
 
   botaoCopiar.addEventListener('click', async () => {
@@ -77,6 +97,10 @@ export function montarTelaInicio(opcoes: OpcoesTelaInicio): TelaInicio {
   });
 
   return {
+    avisar(texto) {
+      avisoExterno = texto;
+      atualizarFormulario();
+    },
     atualizar(novoEstado, novaSessao) {
       estado = novoEstado;
       sessao = novaSessao;

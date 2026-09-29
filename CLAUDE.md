@@ -138,6 +138,20 @@ quando houver um Mac. Pendente do usuário: teste real entre duas redes (2.5; o 
 a conexão ficou "direto" ou "via servidor TURN"), que pode ser feito já com o instalador.
 
 Decisões já tomadas:
+- Computadores salvos (pedido do usuário, versão 0.1.2; escolhas: só salva quando marcar
+  "Salvar este computador", e um clique no salvo conecta direto). No visualizador:
+  `main/conexoes-salvas.ts` (testado) guarda ID, apelido e a senha de acesso em
+  `userData/conexoes.json`; a senha precisa ser recuperável (vai ao outro computador), então
+  fica cifrada com o DPAPI (`safeStorage`), não como hash (a regra do hash é da senha do
+  anfitrião). Risco aceito: quem usar a mesma conta do Windows neste computador acessa os
+  salvos sem digitar (como senhas salvas no navegador). IPC `salvos:listar|salvar|remover|
+  senha|marcar-uso` (só a janela principal); a lista vai à tela sem senhas; a senha só sai
+  do main no instante de conectar. `renderer/salvos.ts` (`SalvarAoConectar`, testado): o
+  pedido de salvar só vale quando a sessão com aquele ID fica liberada (senha errada,
+  recusa ou falha não salvam nada). Tela: caixa + apelido no formulário; cartão
+  "Computadores salvos" (escondido se vazio; ordenado pelo último uso; até 50) com
+  "Editar" (renomear, trocar ou esquecer a senha, remover). Senha que não decifra (outra
+  conta do Windows) = aviso para digitá-la de novo.
 - Processo de input (correção pós-5.4, versão 0.1.1; escolha do usuário: opção A). Relato do
   teste entre duas máquinas: o controle remoto travou ao clicar em minimizar a janela do app
   anfitrião. Causa (reproduzida): o Windows prende o main num laço esperando o botão ser solto

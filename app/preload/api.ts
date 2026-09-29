@@ -49,6 +49,24 @@ export const CANAL_SENHA_REMOVER = 'senha:remover';
 /** Confere a senha de quem quer acessar este computador (com limite de tentativas). */
 export const CANAL_SENHA_TENTAR = 'senha:tentar';
 
+/** Computadores salvos pelo visualizador (ID, apelido, senha cifrada no main). */
+export const CANAL_SALVOS_LISTAR = 'salvos:listar';
+export const CANAL_SALVOS_SALVAR = 'salvos:salvar';
+export const CANAL_SALVOS_REMOVER = 'salvos:remover';
+export const CANAL_SALVOS_SENHA = 'salvos:senha';
+export const CANAL_SALVOS_MARCAR_USO = 'salvos:marcar-uso';
+
+/** Um computador salvo, como a tela vê (a senha nunca vem junto). */
+export interface ComputadorSalvo {
+  id: string;
+  apelido: string;
+  temSenha: boolean;
+  usadoEm: number;
+}
+export type ResultadoSalvar =
+  | { ok: true }
+  | { ok: false; erro: 'id_invalido' | 'senha_invalida' | 'cifra_indisponivel' | 'lista_cheia' };
+
 /** Canal IPC renderer → main: estado que o ícone da bandeja mostra (ID, quem controla). */
 export const CANAL_BANDEJA_ESTADO = 'bandeja:estado';
 /** Canais IPC do "iniciar junto com o computador". */
@@ -135,6 +153,16 @@ export interface ApiDoPreload {
     notificar(de: string, texto: string): void;
     /** Registra quem abre o chat quando o usuário clica na notificação. */
     aoAbrir(tratar: () => void): void;
+  };
+  /** Computadores salvos (visualizador): para conectar sem digitar ID e senha. */
+  readonly salvos: {
+    listar(): Promise<ComputadorSalvo[]>;
+    /** senha: texto = guardar (cifrada); null = esquecer; undefined = manter a atual. */
+    salvar(id: string, apelido: string, senha: string | null | undefined): Promise<ResultadoSalvar>;
+    remover(id: string): Promise<void>;
+    /** A senha salva, só na hora de conectar (null se não houver); marca o uso. */
+    senha(id: string): Promise<string | null>;
+    marcarUso(id: string): Promise<void>;
   };
   /** Ícone da bandeja: a janela principal informa o ID e quem está controlando. */
   readonly bandeja: {

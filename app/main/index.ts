@@ -14,6 +14,7 @@ import { configurarIdentidade } from './identidade';
 import { configurarIndicador } from './indicador';
 import { configurarInput, ligarJanelaAoInput } from './input';
 import { configurarMonitores } from './monitores';
+import { configurarSalvos } from './salvos';
 import { configurarSenha } from './senha';
 
 /**
@@ -117,6 +118,7 @@ if (!app.requestSingleInstanceLock()) {
     configurarArquivos();
     configurarIdentidade();
     configurarSenha();
+    configurarSalvos();
     configurarInput(); // antes de criar a janela: o processo de input já está de pé
     criarJanelaPrincipal();
     configurarBandeja({ janela: () => janelaPrincipal, mostrarJanela });

@@ -29,6 +29,11 @@ import {
   CANAL_MONITORES_MUDOU,
   CANAL_MONITORES_PREPARAR,
   CANAL_PEDIDO_ENCERRAR,
+  CANAL_SALVOS_LISTAR,
+  CANAL_SALVOS_MARCAR_USO,
+  CANAL_SALVOS_REMOVER,
+  CANAL_SALVOS_SALVAR,
+  CANAL_SALVOS_SENHA,
   CANAL_SENHA_DEFINIR,
   CANAL_SENHA_ESTADO,
   CANAL_SENHA_REMOVER,
@@ -96,6 +101,13 @@ const api: ApiDoPreload = {
     aoAbrir: (tratar) => {
       ipcRenderer.on(CANAL_CHAT_ABRIR, () => tratar());
     },
+  },
+  salvos: {
+    listar: () => ipcRenderer.invoke(CANAL_SALVOS_LISTAR),
+    salvar: (id, apelido, senha) => ipcRenderer.invoke(CANAL_SALVOS_SALVAR, id, apelido, senha),
+    remover: (id) => ipcRenderer.invoke(CANAL_SALVOS_REMOVER, id),
+    senha: (id) => ipcRenderer.invoke(CANAL_SALVOS_SENHA, id),
+    marcarUso: (id) => ipcRenderer.invoke(CANAL_SALVOS_MARCAR_USO, id),
   },
   bandeja: {
     atualizar: (estado) => ipcRenderer.send(CANAL_BANDEJA_ESTADO, estado),

@@ -2,10 +2,12 @@
 // controlador de sessão e as telas. Cada parte avisa quando seu estado muda
 // e as telas são redesenhadas a partir dos dois estados.
 import { PROTOCOL_VERSION } from '@acesso-remoto/shared';
+import type { ComputadorSalvo } from '../preload/api';
 import { tocarSomPedido } from './alerta';
 import { GerenciadorArquivos } from './arquivos';
 import { ConversaChat, textoParaEnviar } from './chat';
 import { ConexaoPar } from './par';
+import { SalvarAoConectar } from './salvos';
 import { ControladorSessao, caixaDeAceiteAberta, parceiroControlando, type EstadoSessao } from './sessao';
 import { ClienteSinalizacao, type EstadoSinalizacao } from './sinalizacao';
 import { montarTelaAcesso } from './telas/acesso';
@@ -14,6 +16,7 @@ import { montarTelaChat } from './telas/chat';
 import { montarTelaInicio } from './telas/inicio';
 import { montarTelaMonitores } from './telas/monitores';
 import { montarTelaQualidade } from './telas/qualidade';
+import { montarTelaSalvos } from './telas/salvos';
 import { montarTelaSessao } from './telas/sessao';
 import { montarTelaVisualizacao } from './telas/visualizacao';
 
@@ -23,8 +26,55 @@ let estadoSessao: EstadoSessao = { fase: 'livre' };
 /** A área de transferência é compartilhada só em sessão liberada (aceite ou senha conferida). */
 const compartilhaAreaTransferencia = (estado: EstadoSessao) => estado.fase === 'em_sessao' && estado.liberada;
 
+// Computadores salvos: a caixa "Salvar este computador" só vale se a conexão der certo.
+const salvarAoConectar = new SalvarAoConectar();
+let computadoresSalvos: readonly ComputadorSalvo[] = [];
+const podeConectar = () => estadoSinalizacao.fase === 'online' && estadoSessao.fase === 'livre';
+
+async function recarregarSalvos(): Promise<void> {
+  try {
+    computadoresSalvos = await window.api.salvos.listar();
+  } catch (erro) {
+    console.warn('[salvos] não foi possível ler a lista:', erro);
+  }
+  telaSalvos.atualizar(computadoresSalvos, podeConectar());
+}
+
 const telaInicio = montarTelaInicio({
-  aoConectar: (idRemoto, senha) => controlador.conectar(idRemoto, senha),
+  aoConectar: (idRemoto, senha, salvar) => {
+    salvarAoConectar.pedir(salvar ? { id: idRemoto, apelido: salvar.apelido, senha } : null);
+    controlador.conectar(idRemoto, senha);
+  },
+});
+
+const telaSalvos = montarTelaSalvos({
+  // Um clique conecta: com a senha salva (pedida ao main só agora) ou pedindo aceite.
+  aoConectar: async (computador) => {
+    if (!podeConectar()) return;
+    salvarAoConectar.pedir(null);
+    let senha: string | undefined;
+    if (computador.temSenha) {
+      senha = (await window.api.salvos.senha(computador.id)) ?? undefined;
+      if (!senha) {
+        telaInicio.avisar('Não foi possível ler a senha salva deste computador. Use "Editar" para digitá-la de novo.');
+        return;
+      }
+    } else {
+      await window.api.salvos.marcarUso(computador.id);
+    }
+    if (!podeConectar()) return; // algo mudou enquanto a senha era lida
+    controlador.conectar(computador.id, senha);
+    void recarregarSalvos();
+  },
+  aoEditar: async (id, apelido, senha) => {
+    const resultado = await window.api.salvos.salvar(id, apelido, senha);
+    void recarregarSalvos();
+    return resultado;
+  },
+  aoRemover: async (id) => {
+    await window.api.salvos.remover(id);
+    void recarregarSalvos();
+  },
 });
 const telaSessao = montarTelaSessao({
   aoEncerrar: () => controlador.encerrar(),
@@ -83,6 +133,7 @@ window.api.chat.aoAbrir(() => telaChat.abrir());
 
 function renderizar(): void {
   telaInicio.atualizar(estadoSinalizacao, estadoSessao);
+  telaSalvos.atualizar(computadoresSalvos, podeConectar());
   telaSessao.atualizar(estadoSessao);
   telaMonitores.atualizar(estadoSessao);
   telaQualidade.atualizar(estadoSessao);
@@ -130,6 +181,14 @@ const controlador = new ControladorSessao({
     // Área de transferência compartilhada: só com a sessão liberada. O
     // visualizador manda logo o que já tinha copiado (costuma copiar antes de
     // conectar para colar lá); o anfitrião, só o que copiar dali em diante.
+    // "Salvar este computador": só quando a sessão com ele fica liberada (senha conferida ou aceite).
+    const salvar = salvarAoConectar.aoMudarEstado(estado);
+    if (salvar) {
+      void window.api.salvos.salvar(salvar.id, salvar.apelido, salvar.senha).then((resultado) => {
+        if (!resultado.ok) telaSessao.avisar('Não foi possível salvar este computador.');
+        void recarregarSalvos();
+      });
+    }
     // Sessão nova: a conversa do chat recomeça.
     if (emSessao && estadoSessao.fase !== 'em_sessao') conversa.limpar();
     const compartilhar = compartilhaAreaTransferencia(estado);
@@ -179,6 +238,7 @@ window.api.monitores.aoMudar(() => controlador.monitoresMudaram());
 window.api.sessao.aoPedirEncerramento(() => controlador.encerrar());
 
 sinalizacao.iniciar();
+void recarregarSalvos();
 
 const rodape = document.querySelector('#rodape');
 if (rodape) {

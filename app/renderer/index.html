@@ -115,8 +115,23 @@
             Senha (opcional, para acessar sem precisar de aceite)
             <input id="senha-remota" type="password" autocomplete="off" />
           </label>
+          <!-- Salva ID, apelido e a senha (cifrada), só se a conexão der certo. -->
+          <label class="opcao">
+            <input id="salvar-computador" type="checkbox" />
+            Salvar este computador (com a senha, se houver)
+          </label>
+          <label id="grupo-apelido" class="campo" for="apelido-computador" hidden>
+            Apelido (opcional)
+            <input id="apelido-computador" maxlength="60" autocomplete="off" placeholder="Ex.: Notebook do escritório" />
+          </label>
           <p id="aviso-conectar" class="status" aria-live="polite"></p>
         </form>
+      </section>
+
+      <!-- Computadores salvos: um clique conecta (com a senha salva, se houver). -->
+      <section id="cartao-salvos" class="cartao cartao-largo" aria-labelledby="titulo-salvos" hidden>
+        <h2 id="titulo-salvos">Computadores salvos</h2>
+        <ul id="lista-salvos" class="lista-salvos"></ul>
       </section>
 
       <section class="cartao cartao-largo" aria-labelledby="titulo-acesso">
@@ -124,7 +139,7 @@
         <p id="status-senha" class="status-senha" data-definida="false">Desativado: nenhuma senha definida.</p>
         <p class="nota">
           Com uma senha definida, quem souber o ID e a senha deste computador poderá acessá-lo sem que
-          ninguém precise aceitar. (O acesso com senha chega nas próximas etapas.)
+          ninguém precise aceitar.
         </p>
         <div class="acoes-cartao">
           <button id="definir-senha" type="button" class="secundario">Definir senha</button>
@@ -139,6 +154,31 @@
     </main>
 
     <!-- Caixa da senha: definir, alterar (pede a atual) ou remover (só a atual). -->
+    <!-- Editar um computador salvo: apelido, senha (trocar ou esquecer) ou remover. -->
+    <dialog id="dialogo-salvo" class="dialogo" aria-labelledby="titulo-salvo">
+      <form id="form-salvo" novalidate>
+        <h2 id="titulo-salvo">Computador salvo <span id="id-salvo" class="id-inline"></span></h2>
+        <label class="campo">
+          Apelido
+          <input id="apelido-salvo" maxlength="60" autocomplete="off" />
+        </label>
+        <label class="campo">
+          Nova senha
+          <input id="senha-salva" type="password" autocomplete="off" />
+        </label>
+        <label id="grupo-esquecer-senha" class="opcao">
+          <input id="esquecer-senha" type="checkbox" />
+          Esquecer a senha salva (passa a pedir aceite)
+        </label>
+        <p id="erro-salvo" class="erro" aria-live="assertive"></p>
+        <div class="acoes">
+          <button id="remover-salvo" type="button" class="secundario">Remover</button>
+          <button id="cancelar-salvo" type="button" class="secundario">Cancelar</button>
+          <button type="submit">Salvar</button>
+        </div>
+      </form>
+    </dialog>
+
     <dialog id="dialogo-senha" class="dialogo" aria-labelledby="titulo-senha">
       <form id="form-senha" novalidate>
         <h2 id="titulo-senha">Definir senha</h2>
