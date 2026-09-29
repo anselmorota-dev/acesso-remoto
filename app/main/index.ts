@@ -16,6 +16,16 @@ import { configurarInput } from './input';
 import { configurarMonitores } from './monitores';
 import { configurarSenha } from './senha';
 
+/**
+ * Identificador do app no Windows (AppUserModelId): igual ao appId do
+ * electron-builder.yml, que o instalador põe nos atalhos. Agrupa a janela
+ * com o atalho na barra de tarefas e nomeia o "iniciar junto com o
+ * computador" no registro (que o desinstalador apaga, build/instalador.nsh).
+ * Só no app instalado: em desenvolvimento o Electron usa o próprio.
+ */
+const ID_DO_APP = 'br.dev.anselmorota.acessoremoto';
+if (app.isPackaged && process.platform === 'win32') app.setAppUserModelId(ID_DO_APP);
+
 let janelaPrincipal: BrowserWindow | null = null;
 /** true depois do "Sair": aí fechar a janela encerra o app de verdade. */
 let saindo = false;

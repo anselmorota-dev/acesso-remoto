@@ -23,6 +23,7 @@ Não tenho pressa: prefiro entender cada parte a avançar rápido.
   servidor; código pronto, desligado até cadastrar a chave
 - **Monorepo:** npm workspaces (`shared`, `server`, `app`); TypeScript 7 só para checar tipos
 - **Build do app:** electron-vite 5 (Vite fixado na v7, exigência do electron-vite)
+- **Instalador:** electron-builder 26 (NSIS por usuário no Windows)
 - **Servidor em dev:** tsx (roda o TypeScript direto, com recarga)
 - **Validação de mensagens:** Zod 4, esquemas em `shared/src/mensagens.ts` (geram os tipos)
 - **Testes:** `node:test` + tsx, arquivos `*.test.ts` ao lado do código
@@ -35,6 +36,7 @@ Não tenho pressa: prefiro entender cada parte a avançar rápido.
 - `npm test` — testes automáticos (servidor e renderer do app)
 - `npm run build` — build do app (saída em `app/out/`)
 - `npm run preview` — build de produção e abre o app usando o servidor do Render
+- `npm run dist` — gera o instalador do Windows em `app/dist/` (servidor do Render)
 - Configuração pública do app em `app/.env` (desenvolvimento: `ws://localhost:8080`) e
   `app/.env.production` (produção: `wss://` do Render); segredos/ajustes pessoais em
   `*.local` (fora do git)
@@ -115,7 +117,8 @@ Não tenho pressa: prefiro entender cada parte a avançar rápido.
 - [x] 5.2 Qualidade adaptativa à conexão
 - [ ] 5.3 Servidor TURN para redes corporativas (código pronto; falta ativar a chave da
   Cloudflare, se o teste entre redes mostrar necessidade)
-- [ ] 5.4 Instaladores para Windows e macOS
+- [x] 5.4 Instalador para Windows
+- [ ] 5.4b Instalador para macOS (configurado; falta gerar e testar num Mac)
 
 ## Observações por sistema
 - **macOS:** exige permissões de Gravação de Tela e Acessibilidade; orientar o usuário na primeira execução.
@@ -128,10 +131,38 @@ falta o teste entre duas redes (o usuário fará depois, com outro notebook). Fa
 (28/09/2026). Fase 4 concluída (28/09/2026; servidor com protocolo v9): sessões longas,
 área de transferência, arquivos e chat. Fase 5: 5.1 e 5.2 concluídas (29/09/2026); 5.3 com o
 código pronto e o TURN desligado (protocolo v12), ativar só se o teste entre redes mostrar
-necessidade. Próxima: 5.4 (instaladores). Pendente do usuário: teste real entre duas redes
-(2.5; o painel mostra se a conexão ficou "direto" ou "via servidor TURN").
+necessidade. 5.4: instalador do Windows pronto e testado (29/09/2026); o do macOS ficou para
+quando houver um Mac. Pendente do usuário: teste real entre duas redes (2.5; o painel mostra se
+a conexão ficou "direto" ou "via servidor TURN"), que pode ser feito já com o instalador.
 
 Decisões já tomadas:
+- Instalador (5.4; escolhas do usuário: electron-builder, NSIS por usuário sem administrador,
+  sem assinatura por enquanto, só Windows agora). `app/electron-builder.yml`; `npm run dist`
+  gera `app/dist/Acesso-Remoto-Instalador-<versão>.exe` (~107 MB, quase tudo Electron).
+  - `appId` `br.dev.anselmorota.acessoremoto` = `ID_DO_APP` em `main/index.ts`
+    (`setAppUserModelId`, só empacotado): agrupa na barra de tarefas e é o nome do valor do
+    "iniciar junto com o computador" no registro, que o desinstalador apaga
+    (`build/instalador.nsh`, `customUnInstall`; testado).
+  - `productName` "Acesso Remoto" (via `extraMetadata`): o app instalado guarda os dados em
+    `%APPDATA%\Acesso Remoto` e tem ID próprio; o de desenvolvimento continua em
+    `%APPDATA%\@acesso-remoto\app` (instalações diferentes, podem rodar juntas). Desinstalar
+    mantém os dados (reinstalar volta com o mesmo ID).
+  - `npmRebuild: false`: robotjs, argon2 e koffi usam N-API com binários prontos (recompilar
+    exigiria compilador e falha com espaço no caminho). `asarUnpack` para `@jitsi/robotjs`,
+    `@node-rs`, `koffi` e `@koromix` (o binário da koffi vem num pacote à parte).
+  - Electron com versão exata em `app/package.json` (o electron-builder exige; fica na raiz
+    por causa dos workspaces). `@acesso-remoto/shared` virou devDependency (vai no bundle).
+  - Ícone: `build/icon.png` (256 px) gerado do desenho da bandeja (`npm run icone`).
+  - Sem assinatura: o SmartScreen avisa na primeira execução ("Mais informações → Executar
+    assim mesmo"). O Azure Artifact Signing (US$ 9,99/mês) não aceita pessoa física no
+    Brasil; certificado tradicional custa algumas centenas de dólares por ano.
+  - macOS: seção `mac` configurada (DMG), nunca gerada nem testada; precisa de um Mac (os
+    pacotes nativos do macOS só se instalam lá). Sem conta Apple Developer, sem assinatura
+    nem notarização.
+  - Testado (instalação e desinstalação silenciosas): atalhos no menu Iniciar e na área de
+    trabalho, entrada em Aplicativos instalados, módulos nativos, senha, sessão pelo Render
+    com vídeo e mouse, "iniciar junto com o computador" pelo executável instalado, limpeza ao
+    desinstalar.
 - TURN (5.3, protocolo v12; escolha do usuário: Cloudflare Realtime TURN, 1000 GB/mês grátis,
   US$ 0,05/GB depois, TURN sobre TLS na 443). **Desligado**: a Cloudflare exige cartão para
   ativar o Realtime e o usuário preferiu esperar o teste entre redes (2.5). Para ligar: no
@@ -337,8 +368,8 @@ Decisões já tomadas:
   execução); só "Sair" encerra (`before-quit` liga `saindo`). "Iniciar junto com o computador":
   opção no cartão do acesso não supervisionado e no menu, desligada por padrão;
   `setLoginItemSettings` com `--oculto` (começa só na bandeja). Em desenvolvimento registra o
-  electron.exe + pasta do projeto (entrada "electron.app.Electron"); vale de verdade com o
-  instalador (5.4). Janela principal com `backgroundThrottling: false` (anfitrião escondido
+  electron.exe + pasta do projeto (entrada "electron.app.Electron"); no app instalado (5.4),
+  o executável instalado, com o nome `br.dev.anselmorota.acessoremoto`. Janela principal com `backgroundThrottling: false` (anfitrião escondido
   transmite normalmente: ~29 fps no teste).
 - Limites no servidor (3.5, protocolo v5, `server/src/limites.ts`, em memória: zeram ao
   reiniciar): pedidos de conexão 20/min por IP e por ID (`erro limite_excedido`); instalações
@@ -440,8 +471,14 @@ Decisões já tomadas:
 
 Notas para as próximas etapas:
 - robotjs: o npm desta máquina bloqueia scripts de instalação (`install: node-gyp-build`); não
-  faz falta porque o binário win32-x64 vem pronto. Na 5.4 (instalador) o `.node` precisa ficar
-  fora do asar (`asarUnpack`). O mesmo vale para a koffi (4.2).
+  faz falta porque o binário win32-x64 vem pronto (no instalador, fora do asar: ver 5.4).
+- Teste E2E do app instalado (5.4): instalar com `Acesso-Remoto-Instalador-*.exe /S` (vai para
+  `%LOCALAPPDATA%\Programs\Acesso Remoto`), abrir o `Acesso Remoto.exe` com
+  `--remote-debugging-port`, `--user-data-dir` e `--inspect` (o app empacotado aceita) e
+  desinstalar com `Uninstall Acesso Remoto.exe /S`. No main, `process.mainModule.require`
+  carrega os módulos do pacote; o caminho registrado aparece como `app.asar\...` mesmo vindo de
+  `app.asar.unpacked` (o Electron redireciona). Com o main aberto pelo `--inspect`, exceções do
+  `Runtime.evaluate` voltam como objeto vazio: ler `exceptionDetails`.
 - Teste E2E do chat: digitar com `Input.dispatchKeyEvent` (keyDown com `text`); para
   Enter/Shift+Enter é o evento `char` com `text: '\r'` que quebra a linha num textarea.
   O balão da bandeja não é verificável por código: o main registra "aviso mostrado".

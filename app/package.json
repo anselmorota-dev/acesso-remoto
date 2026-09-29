@@ -3,24 +3,28 @@
   "version": "0.1.0",
   "private": true,
   "description": "App desktop (Electron) de acesso remoto",
+  "author": "Anselmo Rota",
   "main": "./out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
     "typecheck": "tsc -p tsconfig.json && tsc -p renderer/tsconfig.json && tsc -p renderer/tsconfig.test.json",
-    "test": "node --import tsx --test --test-timeout=10000 \"main/**/*.test.ts\" \"renderer/**/*.test.ts\""
+    "test": "node --import tsx --test --test-timeout=10000 \"main/**/*.test.ts\" \"renderer/**/*.test.ts\"",
+    "dist": "electron-vite build && electron-builder --win",
+    "icone": "node --import tsx build/gerar-icone.ts"
   },
   "dependencies": {
-    "@acesso-remoto/shared": "*",
     "@jitsi/robotjs": "^0.6.24",
     "@node-rs/argon2": "^2.2.1",
     "koffi": "^3.3.2"
   },
   "devDependencies": {
     "@acesso-remoto/server": "*",
+    "@acesso-remoto/shared": "*",
     "@types/node": "^24",
-    "electron": "^44.4.5",
+    "electron": "44.4.5",
+    "electron-builder": "^26.15.3",
     "electron-vite": "^5.0.0",
     "tsx": "^4.23.15",
     "vite": "^7"

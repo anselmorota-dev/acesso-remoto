@@ -7,7 +7,9 @@ import type { Plugin } from 'vite';
 
 // Dependências do package.json normalmente ficam de fora do bundle (são
 // carregadas de node_modules em tempo de execução). O pacote shared é
-// TypeScript puro, então precisa ser incluído no bundle.
+// TypeScript puro, então precisa ser incluído no bundle (por isso ele é
+// devDependency: o instalador não o leva em node_modules; a exclusão abaixo
+// garante o bundle mesmo se ele voltar a "dependencies").
 const externalizeDeps = { exclude: ['@acesso-remoto/shared'] };
 
 /**

@@ -1,0 +1,75 @@
+# Instalador (etapa 5.4), gerado pelo electron-builder a partir do build do
+# electron-vite (pasta out/). Uso: npm run dist (saída em app/dist/).
+#
+# Escolhas do usuário: instalador NSIS por usuário (sem pedir administrador),
+# sem assinatura de código por enquanto (o Windows mostra o aviso do
+# SmartScreen na primeira execução) e só Windows por agora (a seção do macOS
+# está pronta, mas nunca foi gerada nem testada: precisa de um Mac).
+
+# Precisa ser igual a ID_DO_APP em main/index.ts: é o AppUserModelId do
+# Windows (agrupa na barra de tarefas, atalhos) e o nome do valor do
+# "iniciar junto com o computador" no registro.
+appId: br.dev.anselmorota.acessoremoto
+productName: Acesso Remoto
+# Vai para o package.json de dentro do app: com o productName, a pasta de
+# dados do app instalado é %APPDATA%\Acesso Remoto (a do desenvolvimento
+# continua em %APPDATA%\@acesso-remoto\app: são instalações diferentes, com
+# IDs diferentes).
+extraMetadata:
+  productName: Acesso Remoto
+
+directories:
+  buildResources: build
+  output: dist
+
+# Só o build (main, preload, renderer) e o package.json; o código-fonte fica
+# de fora. As dependências de produção (robotjs, argon2, koffi) entram sozinhas.
+files:
+  - out/**
+  - package.json
+  - '!out/**/*.map'
+
+# Sem recompilar os módulos nativos: robotjs, argon2 e koffi usam N-API e já
+# vêm com binários prontos que servem para qualquer versão do Electron (os
+# mesmos do desenvolvimento). Recompilar exigiria compilador C++ e falha com
+# espaço no caminho do projeto ("Acesso Remoto").
+npmRebuild: false
+
+# Módulos nativos (.node) não podem ser carregados de dentro do arquivo asar:
+# ficam em app.asar.unpacked.
+asarUnpack:
+  - '**/node_modules/@jitsi/robotjs/**'
+  - '**/node_modules/@node-rs/**'
+  - '**/node_modules/koffi/**'
+  # O binário da koffi vem num pacote à parte, por plataforma.
+  - '**/node_modules/@koromix/**'
+
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  icon: build/icon.png
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowElevation: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: always
+  createStartMenuShortcut: true
+  shortcutName: Acesso Remoto
+  # Mantém a identidade (ID fixo) e o hash da senha ao desinstalar: reinstalar
+  # volta com o mesmo ID. Para apagar tudo, remover %APPDATA%\Acesso Remoto.
+  deleteAppDataOnUninstall: false
+  # Ao desinstalar, tira o "iniciar junto com o computador" do registro.
+  include: build/instalador.nsh
+  artifactName: Acesso-Remoto-Instalador-${version}.${ext}
+
+# macOS: configurado, mas nunca gerado nem testado (precisa de um Mac).
+# Sem conta Apple Developer: sem assinatura/notarização; o usuário libera em
+# Ajustes → Privacidade e Segurança, e as permissões de Gravação de Tela e
+# Acessibilidade podem precisar ser dadas de novo a cada atualização.
+mac:
+  target: dmg
+  category: public.app-category.utilities
+  icon: build/icon.png

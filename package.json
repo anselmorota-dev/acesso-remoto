@@ -17,7 +17,8 @@
     "build": "npm run build --workspaces --if-present",
     "preview": "npm run preview -w @acesso-remoto/app",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "test": "npm run test --workspaces --if-present"
+    "test": "npm run test --workspaces --if-present",
+    "dist": "npm run dist -w @acesso-remoto/app"
   },
   "devDependencies": {
     "concurrently": "^10.0.5",
