@@ -199,6 +199,39 @@ button.pequeno {
   white-space: nowrap;
 }
 
+/* Monitores (visualizador) ----------------------------------------------- */
+
+.monitores {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.monitores[hidden] {
+  display: none;
+}
+
+.rotulo-monitores {
+  font-size: 0.85rem;
+  color: var(--texto-suave);
+}
+
+.botoes-monitores {
+  display: flex;
+  gap: 4px;
+}
+
+.botoes-monitores button {
+  min-width: 2.2em;
+}
+
+/* O monitor à vista. */
+.botoes-monitores button[aria-pressed='true'] {
+  background: var(--destaque);
+  border-color: var(--destaque);
+  color: var(--destaque-texto);
+}
+
 /* Arquivos --------------------------------------------------------------- */
 
 .painel-arquivos {

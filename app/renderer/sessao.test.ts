@@ -7,7 +7,7 @@ import { afterEach, beforeEach, test } from 'node:test';
 import { novaIdentidade } from '@acesso-remoto/server/auxiliares-teste';
 import { InstalacoesEmMemoria } from '@acesso-remoto/server/instalacoes';
 import { iniciarServidor, type ServidorSinalizacao } from '@acesso-remoto/server/servidor';
-import type { EventoInput, Sinal } from '@acesso-remoto/shared';
+import type { EventoInput, IdMonitor, Monitor, Sinal } from '@acesso-remoto/shared';
 import { ErroCaptura } from './captura';
 import type { CanalArquivos } from './arquivos';
 import type { OpcoesPar, Par } from './par';
@@ -16,6 +16,10 @@ import { ClienteSinalizacao } from './sinalizacao';
 
 /** Quando true, o próximo anfitrião falso falha ao capturar a tela. */
 let simularFalhaCaptura = false;
+
+/** Monitores de exemplo: o notebook (principal) e um monitor à esquerda. */
+const PRINCIPAL: Monitor = { id: '111', largura: 1366, altura: 768, principal: true };
+const ESQUERDA: Monitor = { id: '222', largura: 1920, altura: 1080, principal: false };
 
 /** Conexão falsa: registra o que o controlador pede e permite simular eventos. */
 class ParFalso implements Par {
@@ -31,7 +35,23 @@ class ParFalso implements Par {
   reiniciosIce = 0;
   readonly areaEnviada: string[] = [];
   readonly chatEnviado: string[] = [];
+  /** Monitores: o que o anfitrião anunciou, o que o visualizador pediu e as trocas feitas. */
+  readonly monitoresEnviados: Array<{ lista: Monitor[]; atual: IdMonitor }> = [];
+  readonly monitoresEscolhidos: IdMonitor[] = [];
+  readonly trocasMonitor: Array<IdMonitor | null> = [];
+  falharTrocaMonitor = false;
   constructor(readonly opcoes: OpcoesPar) {}
+  async trocarMonitor(id: IdMonitor | null) {
+    if (this.falharTrocaMonitor) throw new ErroCaptura('monitor sumiu');
+    this.trocasMonitor.push(id);
+    return id ?? PRINCIPAL.id;
+  }
+  enviarMonitores(lista: Monitor[], atual: IdMonitor) {
+    this.monitoresEnviados.push({ lista, atual });
+  }
+  escolherMonitor(id: IdMonitor) {
+    this.monitoresEscolhidos.push(id);
+  }
   enviarChat(texto: string) {
     this.chatEnviado.push(texto);
     return true;
@@ -49,6 +69,7 @@ class ParFalso implements Par {
   async liberarTela() {
     if (simularFalhaCaptura) throw new ErroCaptura('sem permissão');
     this.telaLiberada = true;
+    return PRINCIPAL.id; // como o real: começa pelo principal
   }
   async receberSinal(sinal: Sinal) {
     this.sinaisRecebidos.push(sinal);
@@ -129,6 +150,8 @@ async function criarApp(opcoesApp: OpcoesApp = {}) {
   const chatRecebido: string[] = [];
   let liberacoes = 0;
   let verificacoesServidor = 0;
+  /** Monitores deste "computador" (o teste troca para simular um que entra ou sai). */
+  let monitores: Monitor[] = [ESQUERDA, PRINCIPAL];
   let id = '';
   const identidade = novaIdentidade();
   const sinalizacao: ClienteSinalizacao = new ClienteSinalizacao({
@@ -164,6 +187,7 @@ async function criarApp(opcoesApp: OpcoesApp = {}) {
     aoMudarCanalArquivos: (canal) => canaisArquivos.push(canal),
     aoMensagemArquivos: (dados) => mensagensArquivos.push(dados),
     aoReceberChat: (texto) => chatRecebido.push(texto),
+    listarMonitores: async () => monitores,
     senhaDefinida: async () => opcoesApp.senhaDefinida ?? false,
     tentarSenha: async (senha) => {
       if (opcoesApp.bloqueado) return 'bloqueada';
@@ -193,6 +217,7 @@ async function criarApp(opcoesApp: OpcoesApp = {}) {
     canaisArquivos,
     mensagensArquivos,
     chatRecebido,
+    definirMonitores: (lista: Monitor[]) => (monitores = lista),
     liberacoes: () => liberacoes,
     verificacoesServidor: () => verificacoesServidor,
     id: () => id,
@@ -789,4 +814,99 @@ test('chat: nada fora de sessão, antes da senha conferir nem de conexão antiga
   anfitriao.controlador.encerrar();
   parA.opcoes.aoReceberChat?.('atrasada');
   assert.deepEqual(anfitriao.chatRecebido, ['agora sim']);
+});
+
+/** Monitores que o estado da sessão mostra (null: nenhum ainda). */
+const monitoresDe = (app: App) => {
+  const estado = app.controlador.estado;
+  return estado.fase === 'em_sessao' ? estado.monitores : null;
+};
+
+test('monitores: o anfitrião anuncia a lista quando a tela começa, e o visualizador troca', async () => {
+  const { visualizador, anfitriao } = await emSessao();
+  const [parV] = visualizador.pares;
+  const [parA] = anfitriao.pares;
+  assert.ok(parV && parA);
+
+  // A tela começa pelo principal, e a lista vai ao visualizador.
+  await aguardar(() => parA.monitoresEnviados.length === 1);
+  assert.deepEqual(parA.monitoresEnviados, [{ lista: [ESQUERDA, PRINCIPAL], atual: PRINCIPAL.id }]);
+  assert.deepEqual(monitoresDe(anfitriao), { lista: [ESQUERDA, PRINCIPAL], atual: PRINCIPAL.id });
+
+  // Visualizador: antes de saber os monitores, não pede nada.
+  visualizador.controlador.escolherMonitor(ESQUERDA.id);
+  assert.deepEqual(parV.monitoresEscolhidos, []);
+  parV.opcoes.aoReceberMonitores?.([ESQUERDA, PRINCIPAL], PRINCIPAL.id);
+  assert.deepEqual(monitoresDe(visualizador), { lista: [ESQUERDA, PRINCIPAL], atual: PRINCIPAL.id });
+
+  // Só pede um monitor da lista, e não o que já está à vista.
+  visualizador.controlador.escolherMonitor('999');
+  visualizador.controlador.escolherMonitor(PRINCIPAL.id);
+  visualizador.controlador.escolherMonitor(ESQUERDA.id);
+  assert.deepEqual(parV.monitoresEscolhidos, [ESQUERDA.id]);
+
+  // Anfitrião: pedido de monitor que não existe é ignorado; o da lista é atendido.
+  parA.opcoes.aoEscolherMonitor?.('999');
+  parA.opcoes.aoEscolherMonitor?.(ESQUERDA.id);
+  await aguardar(() => parA.monitoresEnviados.length === 2);
+  assert.deepEqual(parA.trocasMonitor, [ESQUERDA.id]);
+  assert.deepEqual(parA.monitoresEnviados[1], { lista: [ESQUERDA, PRINCIPAL], atual: ESQUERDA.id });
+});
+
+test('monitores: o mostrado é desconectado e a imagem volta ao principal', async () => {
+  const { anfitriao } = await emSessao();
+  const [parA] = anfitriao.pares;
+  assert.ok(parA);
+  await aguardar(() => parA.monitoresEnviados.length === 1);
+  parA.opcoes.aoEscolherMonitor?.(ESQUERDA.id);
+  await aguardar(() => parA.monitoresEnviados.length === 2);
+
+  // Monitor que não está à vista muda de resolução: só a lista nova vai.
+  const maior = { ...PRINCIPAL, largura: 1920, altura: 1080 };
+  anfitriao.definirMonitores([ESQUERDA, maior]);
+  anfitriao.controlador.monitoresMudaram();
+  await aguardar(() => parA.monitoresEnviados.length === 3);
+  assert.deepEqual(parA.monitoresEnviados[2], { lista: [ESQUERDA, maior], atual: ESQUERDA.id });
+
+  // O monitor à vista sai: troca para o principal e avisa.
+  anfitriao.definirMonitores([maior]);
+  anfitriao.controlador.monitoresMudaram();
+  await aguardar(() => parA.monitoresEnviados.length === 4);
+  assert.deepEqual(parA.trocasMonitor, [ESQUERDA.id, null]);
+  assert.deepEqual(parA.monitoresEnviados[3], { lista: [maior], atual: PRINCIPAL.id });
+});
+
+test('monitores: troca que falha mantém o monitor anterior e a sessão', async () => {
+  const { anfitriao } = await emSessao();
+  const [parA] = anfitriao.pares;
+  assert.ok(parA);
+  await aguardar(() => parA.monitoresEnviados.length === 1);
+  parA.falharTrocaMonitor = true;
+  parA.opcoes.aoEscolherMonitor?.(ESQUERDA.id);
+  // O visualizador é lembrado de qual continua à vista.
+  await aguardar(() => parA.monitoresEnviados.length === 2);
+  assert.equal(parA.monitoresEnviados[1]?.atual, PRINCIPAL.id);
+  assert.equal(fase(anfitriao), 'em_sessao');
+});
+
+test('monitores: nada antes de a senha conferir nem de conexão antiga', async () => {
+  const { visualizador, anfitriao, parV, parA } = await sessaoComSenha({ senhaDefinida: true, senhaCerta: SENHA });
+  // Travada: o anfitrião não anuncia, o visualizador não aceita lista nem pede troca.
+  parV.opcoes.aoReceberMonitores?.([ESQUERDA, PRINCIPAL], PRINCIPAL.id);
+  assert.equal(monitoresDe(visualizador), null);
+  parA.opcoes.aoEscolherMonitor?.(ESQUERDA.id);
+  anfitriao.controlador.monitoresMudaram();
+  await new Promise((r) => setTimeout(r, 50));
+  assert.deepEqual(parA.monitoresEnviados, []);
+  assert.deepEqual(parA.trocasMonitor, []);
+
+  // Senha certa: a tela começa e a lista vai.
+  parA.opcoes.aoReceberSenha?.(SENHA);
+  await aguardar(() => parA.monitoresEnviados.length === 1);
+
+  // Sessão encerrada: lista atrasada da conexão antiga não vale.
+  parV.opcoes.aoAutenticado?.();
+  visualizador.controlador.encerrar();
+  parV.opcoes.aoReceberMonitores?.([ESQUERDA, PRINCIPAL], PRINCIPAL.id);
+  assert.equal(monitoresDe(visualizador), null);
 });

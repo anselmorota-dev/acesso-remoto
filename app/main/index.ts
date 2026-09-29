@@ -13,6 +13,7 @@ import { configurarEnergia } from './energia';
 import { configurarIdentidade } from './identidade';
 import { configurarIndicador } from './indicador';
 import { configurarInput } from './input';
+import { configurarMonitores } from './monitores';
 import { configurarSenha } from './senha';
 
 let janelaPrincipal: BrowserWindow | null = null;
@@ -95,6 +96,7 @@ if (!app.requestSingleInstanceLock()) {
     // Sem o menu padrão do Electron: seus atalhos (Ctrl+W fecha, Ctrl+R recarrega,
     // Alt abre o menu) agiriam no app em vez de ir para o computador remoto.
     Menu.setApplicationMenu(null);
+    configurarMonitores();
     configurarCaptura();
     configurarAtencao();
     configurarIndicador();

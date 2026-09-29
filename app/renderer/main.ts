@@ -12,6 +12,7 @@ import { montarTelaAcesso } from './telas/acesso';
 import { montarTelaArquivos } from './telas/arquivos';
 import { montarTelaChat } from './telas/chat';
 import { montarTelaInicio } from './telas/inicio';
+import { montarTelaMonitores } from './telas/monitores';
 import { montarTelaSessao } from './telas/sessao';
 import { montarTelaVisualizacao } from './telas/visualizacao';
 
@@ -27,6 +28,11 @@ const telaInicio = montarTelaInicio({
 const telaSessao = montarTelaSessao({
   aoEncerrar: () => controlador.encerrar(),
   aoResponderPedido: (aceito) => controlador.responderPedido(aceito),
+});
+
+// Visualizador: qual monitor do outro computador ver.
+const telaMonitores = montarTelaMonitores({
+  aoEscolher: (id) => controlador.escolherMonitor(id),
 });
 
 const telaVisualizacao = montarTelaVisualizacao({
@@ -72,6 +78,7 @@ window.api.chat.aoAbrir(() => telaChat.abrir());
 function renderizar(): void {
   telaInicio.atualizar(estadoSinalizacao, estadoSessao);
   telaSessao.atualizar(estadoSessao);
+  telaMonitores.atualizar(estadoSessao);
   telaAcesso.atualizar(estadoSessao);
   // Ícone da bandeja: ID e quem está controlando (o main ignora se nada mudou).
   window.api.bandeja.atualizar({
@@ -130,6 +137,8 @@ const controlador = new ControladorSessao({
   // Anfitrião: só o main executa input; o renderer apenas repassa.
   aoReceberInput: (evento) => window.api.input.executar(evento),
   aoLiberarInput: () => window.api.input.liberar(),
+  // Anfitrião: os monitores deste computador (o visualizador escolhe qual ver).
+  listarMonitores: () => window.api.monitores.listar(),
   // Acesso com senha: quem sabe se há senha e quem confere é o main.
   senhaDefinida: () => window.api.senha.estado().then((estado) => estado.definida),
   tentarSenha: (senha) => window.api.senha.tentar(senha),
@@ -153,6 +162,10 @@ window.api.areaTransferencia.aoCopiar((texto) => {
     telaSessao.avisar('O texto copiado é grande demais para ir ao outro computador (limite de cerca de 250 KB).');
   }
 });
+
+// Um monitor entrou, saiu ou mudou de resolução: o visualizador fica sabendo
+// (e, se o que ele via sumiu, a imagem volta ao principal).
+window.api.monitores.aoMudar(() => controlador.monitoresMudaram());
 
 // Encerrar pelo botão do indicador flutuante.
 window.api.sessao.aoPedirEncerramento(() => controlador.encerrar());

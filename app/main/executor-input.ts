@@ -1,17 +1,17 @@
 // Executa no anfitrião os eventos de input que chegam do visualizador.
 //
 // Recebe eventos já validados (esquema Zod) e cuida do resto:
-//   - converte as coordenadas normalizadas (0 a 1) em pixels do monitor;
+//   - converte as coordenadas normalizadas (0 a 1) em pixels do monitor que
+//     está sendo mostrado (com vários monitores, só ele recebe o mouse);
 //   - limita a taxa de eventos, para um parceiro com defeito (ou mal-
 //     intencionado) não inundar o sistema;
 //   - lembra quais botões e teclas estão apertados, para soltá-los no fim da
 //     sessão (senão um botão ou um Ctrl "preso" continuaria valendo no anfitrião).
 // Quem mexe de fato no mouse e no teclado é o Robo (robotjs no app, um falso nos testes).
 import type { BotaoMouse, EventoInput } from '@acesso-remoto/shared';
+import type { Retangulo } from './lista-monitores';
 
 export interface Robo {
-  /** Tamanho do monitor principal, no mesmo sistema de coordenadas de moverPara. */
-  tamanhoTela(): { largura: number; altura: number };
   moverPara(x: number, y: number): void;
   botao(botao: BotaoMouse, pressionado: boolean): void;
   /** Rola na unidade do sistema (ver rolagemParaSistema). */
@@ -24,6 +24,12 @@ export interface Robo {
 
 export interface OpcoesExecutor {
   plataforma: NodeJS.Platform;
+  /**
+   * Onde fica o monitor mostrado ao visualizador, no mesmo sistema de
+   * coordenadas de moverPara (pode começar em x/y negativos: monitor à
+   * esquerda ou acima do principal).
+   */
+  areaDoMonitor: () => Retangulo;
   /** Relógio em ms (injetável nos testes). */
   agora?: () => number;
 }
@@ -38,6 +44,7 @@ export const LIMITE_EVENTOS_POR_SEGUNDO = 200;
 export class ExecutorInput {
   private readonly robo: Robo;
   private readonly plataforma: NodeJS.Platform;
+  private readonly areaDoMonitor: () => Retangulo;
   private readonly agora: () => number;
   private readonly pressionados = new Set<BotaoMouse>();
   private readonly teclasPressionadas = new Set<string>();
@@ -49,6 +56,7 @@ export class ExecutorInput {
   constructor(robo: Robo, opcoes: OpcoesExecutor) {
     this.robo = robo;
     this.plataforma = opcoes.plataforma;
+    this.areaDoMonitor = opcoes.areaDoMonitor;
     this.agora = opcoes.agora ?? Date.now;
     this.ultimaRecarga = this.agora();
   }
@@ -101,8 +109,8 @@ export class ExecutorInput {
   }
 
   private mover(x: number, y: number): void {
-    const { largura, altura } = this.robo.tamanhoTela();
-    this.robo.moverPara(Math.round(x * (largura - 1)), Math.round(y * (altura - 1)));
+    const area = this.areaDoMonitor();
+    this.robo.moverPara(area.x + Math.round(x * (area.largura - 1)), area.y + Math.round(y * (area.altura - 1)));
   }
 
   private gastarFicha(): boolean {

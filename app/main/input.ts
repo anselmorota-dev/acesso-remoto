@@ -8,6 +8,7 @@ import { app, ipcMain } from 'electron';
 import { esquemaEventoInput, type BotaoMouse } from '@acesso-remoto/shared';
 import { CANAL_EXECUTAR_INPUT, CANAL_LIBERAR_INPUT } from '../preload/api';
 import { ExecutorInput, type Robo } from './executor-input';
+import { aoMudarMonitores, areaDoMonitorMostrado } from './monitores';
 import { janelaDoQuadroPrincipal } from './quadros';
 
 const BOTOES_ROBOTJS: Record<BotaoMouse, 'left' | 'middle' | 'right'> = {
@@ -21,10 +22,6 @@ function criarRobo(): Robo {
   robot.setMouseDelay(0);
   robot.setKeyboardDelay(0);
   return {
-    tamanhoTela: () => {
-      const { width, height } = robot.getScreenSize();
-      return { largura: width, altura: height };
-    },
     moverPara: (x, y) => robot.moveMouse(x, y),
     botao: (botao, pressionado) => robot.mouseToggle(pressionado ? 'down' : 'up', BOTOES_ROBOTJS[botao]),
     rolar: (x, y) => robot.scrollMouse(x, y),
@@ -45,7 +42,14 @@ function criarRobo(): Robo {
 }
 
 export function configurarInput(): void {
-  const executor = new ExecutorInput(criarRobo(), { plataforma: process.platform });
+  const executor = new ExecutorInput(criarRobo(), {
+    plataforma: process.platform,
+    // Com vários monitores, o mouse age só no que o visualizador está vendo.
+    areaDoMonitor: areaDoMonitorMostrado,
+  });
+  // O robotjs guarda o tamanho da área de trabalho na primeira vez que move o
+  // mouse; se um monitor entra ou sai, as contas dele ficariam erradas.
+  aoMudarMonitores(() => robot.updateScreenMetrics());
   const liberar = () => executor.liberar();
 
   ipcMain.on(CANAL_EXECUTAR_INPUT, (evento, dados: unknown) => {

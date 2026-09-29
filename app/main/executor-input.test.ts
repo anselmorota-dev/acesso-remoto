@@ -3,11 +3,11 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { BotaoMouse } from '@acesso-remoto/shared';
 import { ExecutorInput, LIMITE_EVENTOS_POR_SEGUNDO, rolagemParaSistema, type Robo } from './executor-input';
+import type { Retangulo } from './lista-monitores';
 
-function criar(opcoes: { plataforma?: NodeJS.Platform } = {}) {
+function criar(opcoes: { plataforma?: NodeJS.Platform; area?: Retangulo } = {}) {
   const chamadas: string[] = [];
   const robo: Robo = {
-    tamanhoTela: () => ({ largura: 1366, altura: 768 }),
     moverPara: (x, y) => chamadas.push(`mover ${x},${y}`),
     botao: (botao: BotaoMouse, pressionado) => chamadas.push(`${botao} ${pressionado ? 'desce' : 'sobe'}`),
     rolar: (x, y) => chamadas.push(`rolar ${x},${y}`),
@@ -15,7 +15,12 @@ function criar(opcoes: { plataforma?: NodeJS.Platform } = {}) {
     digitar: (texto) => chamadas.push(`digitar ${texto}`),
   };
   let agora = 0;
-  const executor = new ExecutorInput(robo, { plataforma: opcoes.plataforma ?? 'win32', agora: () => agora });
+  const area = opcoes.area ?? { x: 0, y: 0, largura: 1366, altura: 768 };
+  const executor = new ExecutorInput(robo, {
+    plataforma: opcoes.plataforma ?? 'win32',
+    areaDoMonitor: () => area,
+    agora: () => agora,
+  });
   return { executor, chamadas, avancar: (ms: number) => (agora += ms) };
 }
 
@@ -25,6 +30,15 @@ test('coordenadas normalizadas viram pixels do monitor', () => {
   executor.executar({ tipo: 'mouse_mover', x: 1, y: 1 });
   executor.executar({ tipo: 'mouse_mover', x: 0.5, y: 0.5 });
   assert.deepEqual(chamadas, ['mover 0,0', 'mover 1365,767', 'mover 683,384']);
+});
+
+test('com outro monitor escolhido, as coordenadas caem dentro dele', () => {
+  // Monitor à esquerda do principal: começa em x negativo.
+  const { executor, chamadas } = criar({ area: { x: -1920, y: -200, largura: 1920, altura: 1080 } });
+  executor.executar({ tipo: 'mouse_mover', x: 0, y: 0 });
+  executor.executar({ tipo: 'mouse_mover', x: 1, y: 1 });
+  executor.executar({ tipo: 'mouse_botao', botao: 'esquerdo', pressionado: true, x: 0.5, y: 0.5 });
+  assert.deepEqual(chamadas, ['mover -1920,-200', 'mover -1,879', 'mover -960,340', 'esquerdo desce']);
 });
 
 test('botão move o cursor para a posição antes de apertar', () => {

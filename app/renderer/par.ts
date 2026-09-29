@@ -21,7 +21,9 @@ import {
   decodificarMensagem,
   esquemaMensagemCanal,
   type EventoInput,
+  type IdMonitor,
   type MensagemCanal,
+  type Monitor,
   type MotivoFimPeloCanal,
   type Papel,
   type Sinal,
@@ -58,14 +60,31 @@ export interface OpcoesPar {
   aoMensagemArquivos?: (dados: string | ArrayBuffer) => void;
   /** Mensagem do chat vinda do outro lado (já validada). */
   aoReceberChat?: (texto: string) => void;
+  /** Visualizador: os monitores do anfitrião e qual está sendo mostrado (já validado). */
+  aoReceberMonitores?: (lista: Monitor[], atual: IdMonitor) => void;
+  /** Anfitrião: o visualizador pediu para ver outro monitor. */
+  aoEscolherMonitor?: (id: IdMonitor) => void;
 }
 
 /** O que o controlador de sessão precisa de uma conexão (permite trocar por um falso nos testes). */
 export interface Par {
   iniciar(): Promise<void>;
   receberSinal(sinal: Sinal): Promise<void>;
-  /** Anfitrião: começa a enviar a tela (logo no aceite, ou depois da senha). */
-  liberarTela(): Promise<void>;
+  /**
+   * Anfitrião: começa a enviar a tela, pelo monitor principal (logo no
+   * aceite, ou depois da senha). Devolve o monitor capturado.
+   */
+  liberarTela(): Promise<IdMonitor | null>;
+  /**
+   * Anfitrião, com a tela já liberada: passa a enviar outro monitor (null: o
+   * principal), sem renegociar a conexão. Devolve o monitor capturado; se a
+   * captura falhar, lança o erro e o monitor anterior continua.
+   */
+  trocarMonitor(id: IdMonitor | null): Promise<IdMonitor | null>;
+  /** Anfitrião: informa ao visualizador os monitores e qual está sendo mostrado. */
+  enviarMonitores(lista: Monitor[], atual: IdMonitor): void;
+  /** Visualizador: pede para ver outro monitor. */
+  escolherMonitor(id: IdMonitor): void;
   /** Visualizador: envia um evento de input pelo DataChannel. */
   enviarInput(evento: EventoInput): void;
   /** Visualizador: envia a senha (sessão por senha). */
@@ -117,6 +136,12 @@ export class ConexaoPar implements Par {
   private telaLocal: MediaStream | null = null;
   /** Anfitrião: por onde o vídeo sai (a imagem entra em liberarTela). */
   private enviadorVideo: RTCRtpSender | null = null;
+  /**
+   * Anfitrião: uma captura por vez. O main entrega o monitor que foi
+   * "preparado" por último; duas capturas ao mesmo tempo poderiam trocar
+   * os monitores entre si.
+   */
+  private filaCaptura: Promise<unknown> = Promise.resolve();
   /** Visualizador: senha esperando o canal abrir (acesso com senha). */
   private senhaPendente: string | null = null;
   /** Texto copiado esperando o canal abrir (só o último importa). */
@@ -188,17 +213,51 @@ export class ConexaoPar implements Par {
   }
 
   /** Anfitrião: captura a tela e passa a enviá-la (sem renegociar a conexão). */
-  async liberarTela(): Promise<void> {
-    if (this.opcoes.papel !== 'anfitriao' || this.telaLocal) return;
-    const tela = await capturarTela();
+  async liberarTela(): Promise<IdMonitor | null> {
+    if (this.opcoes.papel !== 'anfitriao' || this.telaLocal) return null;
+    return this.capturar(null);
+  }
+
+  async trocarMonitor(id: IdMonitor | null): Promise<IdMonitor | null> {
+    if (this.opcoes.papel !== 'anfitriao' || !this.telaLocal) return null;
+    return this.capturar(id);
+  }
+
+  enviarMonitores(lista: Monitor[], atual: IdMonitor): void {
+    this.enviarNoCanal({ tipo: 'monitores', lista, atual });
+  }
+
+  escolherMonitor(id: IdMonitor): void {
+    this.enviarNoCanal({ tipo: 'escolher_monitor', id });
+  }
+
+  /** Enfileira uma captura (ver filaCaptura). */
+  private capturar(id: IdMonitor | null): Promise<IdMonitor | null> {
+    const vez = this.filaCaptura.then(() => this.capturarAgora(id));
+    this.filaCaptura = vez.catch(() => {});
+    return vez;
+  }
+
+  private async capturarAgora(id: IdMonitor | null): Promise<IdMonitor | null> {
+    if (this.fechado()) return null;
+    const { tela, monitor } = await capturarTela(id);
     // A sessão pode ter sido encerrada enquanto esperávamos a captura:
     // nesse caso a captura é parada na hora, nunca fica ativa à toa.
-    if (this.estado === 'fechado' || !this.enviadorVideo) {
+    if (this.fechado() || !this.enviadorVideo) {
       pararCaptura(tela);
-      return;
+      return null;
     }
+    const anterior = this.telaLocal;
     this.telaLocal = tela;
     await this.enviadorVideo.replaceTrack(tela.getVideoTracks()[0] ?? null);
+    // Só agora a captura anterior pode parar: a imagem não fica preta na troca.
+    if (anterior) pararCaptura(anterior);
+    return monitor;
+  }
+
+  /** Método (e não comparação direta) porque o estado muda durante os "await". */
+  private fechado(): boolean {
+    return this.estado === 'fechado';
   }
 
   /** Visualizador: manda a senha pelo canal direto (espera o canal abrir, se preciso). */
@@ -443,6 +502,12 @@ export class ConexaoPar implements Par {
         break;
       case 'chat':
         this.opcoes.aoReceberChat?.(mensagem.texto);
+        break;
+      case 'monitores':
+        if (this.opcoes.papel === 'visualizador') this.opcoes.aoReceberMonitores?.(mensagem.lista, mensagem.atual);
+        break;
+      case 'escolher_monitor':
+        if (this.opcoes.papel === 'anfitriao') this.opcoes.aoEscolherMonitor?.(mensagem.id);
         break;
       default:
         // Todo o resto é evento de input (mouse e teclado); o TypeScript

@@ -1,7 +1,7 @@
 // Contrato do que o preload expõe ao renderer (window.api).
 // Fica separado do preload para o renderer importar só o tipo,
 // sem puxar os tipos do Electron e do Node para o lado do navegador.
-import type { EventoInput, ProblemaSenha } from '@acesso-remoto/shared';
+import type { EventoInput, IdMonitor, Monitor, ProblemaSenha } from '@acesso-remoto/shared';
 
 /** Canal IPC renderer → main: pede para trazer a janela para frente. */
 export const CANAL_CHAMAR_ATENCAO = 'janela:chamar-atencao';
@@ -33,6 +33,11 @@ export const CANAL_ARQUIVOS_FALHOU = 'arquivos:falhou';
 export const CANAL_CHAT_NOTIFICAR = 'chat:notificar';
 /** main → renderer: clicaram na notificação; abrir o chat. */
 export const CANAL_CHAT_ABRIR = 'chat:abrir';
+
+/** Monitores deste computador (anfitrião): lista, escolha para a próxima captura e aviso de mudança. */
+export const CANAL_MONITORES_LISTAR = 'monitores:listar';
+export const CANAL_MONITORES_PREPARAR = 'monitores:preparar';
+export const CANAL_MONITORES_MUDOU = 'monitores:mudou';
 
 /** Resultado de terminar de receber um arquivo. */
 export type ConclusaoArquivo = { ok: true; nome: string } | { ok: false; erro: 'tamanho' | 'disco' };
@@ -84,6 +89,19 @@ export interface ApiDoPreload {
     aoPedirEncerramento(tratar: () => void): void;
     /** Em sessão (qualquer papel): mantém a tela acesa e o sistema sem suspender. */
     manterAcordado(ligar: boolean): void;
+  };
+  /** Anfitrião: monitores deste computador (o visualizador escolhe qual ver). */
+  readonly monitores: {
+    /** Da esquerda para a direita. */
+    listar(): Promise<Monitor[]>;
+    /**
+     * Qual monitor a próxima captura (getDisplayMedia) deve entregar (null:
+     * o principal). Devolve o que será entregue: o pedido, ou o principal se
+     * ele não existir mais.
+     */
+    preparar(id: IdMonitor | null): Promise<IdMonitor | null>;
+    /** Registra quem trata a mudança dos monitores (entrou, saiu, mudou de resolução). */
+    aoMudar(tratar: () => void): void;
   };
   /** Área de transferência compartilhada (texto), só durante a sessão liberada. */
   readonly areaTransferencia: {

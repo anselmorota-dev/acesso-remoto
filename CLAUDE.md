@@ -110,7 +110,7 @@ Não tenho pressa: prefiro entender cada parte a avançar rápido.
 - **Pronto:** ✅ fase 4 concluída em 28/09/2026
 
 ### Fase 5 — Robustez
-- [ ] 5.1 Múltiplos monitores (escolher qual ver)
+- [x] 5.1 Múltiplos monitores (escolher qual ver)
 - [ ] 5.2 Qualidade adaptativa à conexão
 - [ ] 5.3 Servidor TURN para redes corporativas
 - [ ] 5.4 Instaladores para Windows e macOS
@@ -124,10 +124,30 @@ Não tenho pressa: prefiro entender cada parte a avançar rápido.
 Fase 1 concluída. Fase 2: 2.1 a 2.4 concluídas; 2.5 publicada e testada na mesma máquina,
 falta o teste entre duas redes (o usuário fará depois, com outro notebook). Fase 3 concluída
 (28/09/2026). Fase 4 concluída (28/09/2026; servidor com protocolo v9): sessões longas,
-área de transferência, arquivos e chat. Próxima: fase 5 (5.1 múltiplos monitores).
-Pendente do usuário: teste real entre duas redes (2.5).
+área de transferência, arquivos e chat. Fase 5: 5.1 concluída (29/09/2026, protocolo v10).
+Próxima: 5.2 (qualidade adaptativa). Pendente do usuário: teste real entre duas redes (2.5).
 
 Decisões já tomadas:
+- Múltiplos monitores (5.1, protocolo v10; escolhas do usuário: quem escolhe é o
+  visualizador; teste com monitor físico). Canal "controle": `monitores {lista, atual}`
+  (anfitrião → visualizador; lista da esquerda para a direita, `{id, largura, altura,
+  principal}`, até 16) quando a imagem começa, a cada troca e quando os monitores mudam;
+  `escolher_monitor {id}` (visualizador → anfitrião). Só com a sessão liberada, só da
+  conexão atual; o anfitrião só aceita um id da lista que anunciou. Id = `display.id` do
+  Electron em texto (é o mesmo `display_id` do desktopCapturer no Windows). Toda sessão
+  começa pelo principal. Main: `main/monitores.ts` (lista em cache, refeita nos eventos
+  `display-added|removed|metrics-changed`; IPC `monitores:listar|preparar` e aviso
+  `monitores:mudou`) + `main/lista-monitores.ts` (puro, testado). A captura: o renderer
+  chama `monitores.preparar(id)` e depois `getDisplayMedia`; o autorizador entrega esse
+  monitor (id inválido ou sumido = principal) e anota o "mostrado". O mouse age só no
+  monitor mostrado: `ExecutorInput` recebe `areaDoMonitor()` (coordenadas do robotjs:
+  no Windows, `screen.dipToScreenRect` = pixels físicos da área de trabalho virtual, pode
+  ser negativa). `robot.updateScreenMetrics()` a cada mudança de monitores. Troca: nova
+  captura + `replaceTrack` (sem renegociar), a anterior só para depois; capturas em fila
+  no par (o main entrega o último "preparado"); falha na troca mantém o monitor anterior
+  e a sessão. Monitor mostrado desconectado → volta ao principal. Visualizador: botões
+  "1, 2…" (`telas/monitores.ts`) no painel, só com 2+ monitores, o à vista com
+  `aria-pressed`. Não há "todos os monitores juntos".
 - Chat (4.4, protocolo v9): mensagem `chat {texto}` no canal "controle" (texto puro, sem
   espaços nas pontas, até 2000 caracteres; quebras de linha valem). Só com a sessão
   liberada. Conversa só em memória (`renderer/chat.ts`, ConversaChat: até 200 mensagens,
@@ -308,8 +328,9 @@ Decisões já tomadas:
   `main/input.ts` valida de novo (Zod) → `main/executor-input.ts` (pixels, limite de 200
   eventos/s por balde de fichas, botões apertados) → robotjs. Fim da sessão, janela fechada ou
   renderer travado soltam os botões (`input:liberar`); o visualizador solta ao perder o foco.
-- Pixels: usa `robot.getScreenSize()` (mesmo sistema de coordenadas do `moveMouse`), não o
-  `screen` do Electron (que usa DIP). `robot.setMouseDelay(0)`: o padrão (10 ms) trava o main.
+- Pixels: desde a 5.1, a área do monitor mostrado em pixels físicos (`dipToScreenRect`, mesmo
+  sistema do `moveMouse` no Windows), não os DIP do `screen` do Electron.
+  `robot.setMouseDelay(0)`: o padrão (10 ms) trava o main.
 - Rolagem em pixels do navegador (dy > 0 = descer); `rolagemParaSistema` converte (Windows:
   100 px = 120 unidades da roda; macOS: pixels; Linux: cliques).
 - Teclado (2.3), modelo híbrido: texto vai como caractere pronto (`texto`, composto no
@@ -347,7 +368,7 @@ Decisões já tomadas:
   vídeo, latência ~12 ms). Falta só o teste entre duas redes diferentes (outro notebook), que o
   usuário fará depois; quando passar, marcar a 2.5.
 - Captura (1.5): o renderer chama `getDisplayMedia`; o main (`main/captura.ts`) autoriza só
-  pedidos do quadro principal das nossas janelas e entrega o monitor principal. Até 30 fps,
+  pedidos do quadro principal das nossas janelas e entrega o monitor escolhido (5.1). Até 30 fps,
   `contentHint = 'detail'` (prioriza nitidez). A trilha é adicionada antes da oferta.
 - Ao encerrar a sessão (qualquer motivo) as trilhas da captura recebem `stop()`; se a sessão
   acabar enquanto a captura ainda está sendo obtida, ela é parada assim que chega.
@@ -375,9 +396,15 @@ Notas para as próximas etapas:
   PowerShell: arquivos .ps1 são bloqueados pela política desta máquina (usar comando inline
   ou -EncodedCommand); `GetOpenClipboardWindow` e `OpenClipboard` em laço NÃO servem para
   medir disputa (leituras duram microssegundos); medir por falhas de cópia de outro programa.
-- robotjs guarda o tamanho da área de trabalho virtual na 1ª chamada e não atualiza: se os
-  monitores mudarem com o app aberto, as coordenadas ficam erradas. Tratar na 5.1.
-- Mouse ainda não testado com escala do Windows ≠ 100% nem no macOS (esta máquina: 1366x768, 100%).
+- Mouse ainda não testado com escala do Windows ≠ 100% nem no macOS (esta máquina: 1366x768,
+  100%; monitor HDMI de teste 1280x720, 100%). Escalas diferentes por monitor: conferir.
+- Teste E2E com dois monitores: o monitor HDMI desta máquina fica em modo Duplicar (o
+  sistema vê um monitor só); `DisplaySwitch.exe /extend` estende (fica à direita, x=1366)
+  e `/clone` devolve o modo do usuário (ao fim do teste); `/internal` simula desligar o
+  segundo. Onde o cursor real parou: abrir o main do anfitrião com `--inspect` e avaliar
+  `screen.getCursorScreenPoint()` (DIP). O app em produção aponta para o Render: para
+  testar com o servidor local, `npx electron-vite build --mode development` (e refazer o
+  build normal no fim).
 - Teclado: AltGr e teclas mortas reais só testados em unidade (o CDP não simula AltGraph);
   conferir à mão com teclado ABNT2. IME (japonês/chinês) ignorado. `unicodeTap` gera VK_PACKET:
   alguns jogos que leem a tecla física não veem letras digitadas (modo "tecla física" com

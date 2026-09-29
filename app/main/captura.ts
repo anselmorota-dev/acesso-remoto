@@ -3,8 +3,9 @@
 // Quando o renderer chama navigator.mediaDevices.getDisplayMedia(), o
 // Electron pergunta ao processo main qual tela entregar. Aqui decidimos:
 // só a janela principal do próprio app pode capturar, e ela recebe o
-// monitor principal (escolher o monitor fica para a etapa 5.1).
-import { desktopCapturer, screen, session } from 'electron';
+// monitor que o visualizador escolheu (monitores.ts; no começo, o principal).
+import { desktopCapturer, session } from 'electron';
+import { definirMonitorMostrado, monitorParaCapturar } from './monitores';
 import { janelaDoQuadroPrincipal } from './quadros';
 
 export function configurarCaptura(): void {
@@ -18,16 +19,21 @@ export function configurarCaptura(): void {
       return;
     }
 
+    const monitor = monitorParaCapturar();
     desktopCapturer
       .getSources({ types: ['screen'] })
       .then((fontes) => {
-        const principal = String(screen.getPrimaryDisplay().id);
-        const fonte = fontes.find((f) => f.display_id === principal) ?? fontes[0];
+        // O "display_id" da fonte é o mesmo id do monitor no Electron. Se não
+        // der para casar (sistema que não informa), fica com a primeira fonte.
+        const fonte = fontes.find((f) => f.display_id === monitor?.id) ?? fontes[0];
         if (!fonte) {
           negar();
           return;
         }
-        console.log(`[main] captura autorizada: ${fonte.name}`);
+        // O mouse do visualizador passa a agir no monitor entregue.
+        const entregue = fonte.display_id || monitor?.id;
+        if (entregue) definirMonitorMostrado(entregue);
+        console.log(`[main] captura autorizada: ${fonte.name} (monitor ${entregue ?? '?'})`);
         responder({ video: fonte }); // sem áudio por enquanto
       })
       .catch((erro: unknown) => {

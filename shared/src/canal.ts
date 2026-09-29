@@ -1,6 +1,7 @@
 // Mensagens trocadas diretamente entre os dois apps pelo DataChannel do
-// WebRTC (sem passar pelo servidor): o ping que mede a latência e os
-// eventos de input (mouse e teclado) e, no acesso não supervisionado, a senha.
+// WebRTC (sem passar pelo servidor): o ping que mede a latência, os eventos
+// de input (mouse e teclado), a escolha do monitor e, no acesso não
+// supervisionado, a senha.
 import { z } from 'zod';
 import { esquemaMotivoFalha } from './mensagens.js';
 import { SENHA_MAXIMA } from './senha.js';
@@ -96,6 +97,30 @@ export const esquemaEventoInput = z.discriminatedUnion('tipo', [...esquemasInput
 export type EventoInput = z.infer<typeof esquemaEventoInput>;
 
 // ---------------------------------------------------------------------------
+// Monitores do anfitrião (etapa 5.1)
+// ---------------------------------------------------------------------------
+
+/** Mais monitores que isso num computador é defeito ou abuso. */
+export const MONITORES_MAXIMO = 16;
+
+/** Identificador de um monitor (o número que o sistema dá a ele, em texto). */
+export const esquemaIdMonitor = z.string().regex(/^\d{1,20}$/);
+export type IdMonitor = z.infer<typeof esquemaIdMonitor>;
+
+const pixels = z.number().int().min(1).max(32_768);
+
+/** Um monitor do anfitrião, como o visualizador vê na lista. */
+export const esquemaMonitor = z.object({
+  id: esquemaIdMonitor,
+  /** Resolução em pixels reais (a da imagem capturada). */
+  largura: pixels,
+  altura: pixels,
+  /** É o monitor principal do sistema (onde fica a barra de tarefas). */
+  principal: z.boolean(),
+});
+export type Monitor = z.infer<typeof esquemaMonitor>;
+
+// ---------------------------------------------------------------------------
 // Todas as mensagens do canal
 // ---------------------------------------------------------------------------
 
@@ -130,6 +155,18 @@ export const esquemaMensagemCanal = z.discriminatedUnion('tipo', [
    * (quem recebe mostra como texto, nunca como HTML); quebras de linha valem.
    */
   z.object({ tipo: z.literal('chat'), texto: z.string().trim().min(1).max(CHAT_TEXTO_MAXIMO) }),
+  /**
+   * Anfitrião → visualizador, com a sessão liberada: os monitores deste
+   * computador (da esquerda para a direita) e qual está sendo mostrado.
+   * Vai quando a imagem começa, a cada troca e quando os monitores mudam.
+   */
+  z.object({
+    tipo: z.literal('monitores'),
+    lista: z.array(esquemaMonitor).min(1).max(MONITORES_MAXIMO),
+    atual: esquemaIdMonitor,
+  }),
+  /** Visualizador → anfitrião, com a sessão liberada: mostrar outro monitor. */
+  z.object({ tipo: z.literal('escolher_monitor'), id: esquemaIdMonitor }),
   ...esquemasInput,
 ]);
 export type MensagemCanal = z.infer<typeof esquemaMensagemCanal>;

@@ -26,6 +26,9 @@ import {
   CANAL_INDICAR_SESSAO,
   CANAL_LIBERAR_INPUT,
   CANAL_MANTER_ACORDADO,
+  CANAL_MONITORES_LISTAR,
+  CANAL_MONITORES_MUDOU,
+  CANAL_MONITORES_PREPARAR,
   CANAL_PEDIDO_ENCERRAR,
   CANAL_SENHA_DEFINIR,
   CANAL_SENHA_ESTADO,
@@ -52,6 +55,13 @@ const api: ApiDoPreload = {
       ipcRenderer.on(CANAL_PEDIDO_ENCERRAR, () => tratar());
     },
     manterAcordado: (ligar) => ipcRenderer.send(CANAL_MANTER_ACORDADO, ligar),
+  },
+  monitores: {
+    listar: () => ipcRenderer.invoke(CANAL_MONITORES_LISTAR),
+    preparar: (id) => ipcRenderer.invoke(CANAL_MONITORES_PREPARAR, id),
+    aoMudar: (tratar) => {
+      ipcRenderer.on(CANAL_MONITORES_MUDOU, () => tratar());
+    },
   },
   areaTransferencia: {
     monitorar: (ligar, enviarAtual) => ipcRenderer.send(CANAL_AREA_MONITORAR, ligar, enviarAtual),

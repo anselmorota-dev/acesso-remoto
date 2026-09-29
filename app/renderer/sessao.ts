@@ -19,7 +19,9 @@
 import type {
   EventoInput,
   IdCliente,
+  IdMonitor,
   MensagemDoCliente,
+  Monitor,
   MotivoEncerramento,
   MotivoFalha,
   MotivoFimPeloCanal,
@@ -64,7 +66,17 @@ export type EstadoSessao =
        * local) em que a sessão acaba se ela não voltar. null = conexão normal.
        */
       reconectandoAte: number | null;
+      /**
+       * Monitores do anfitrião e qual está sendo mostrado (null até a imagem
+       * começar). O visualizador recebe pelo canal; o anfitrião guarda o que enviou.
+       */
+      monitores: MonitoresSessao | null;
     };
+
+export interface MonitoresSessao {
+  lista: Monitor[];
+  atual: IdMonitor;
+}
 
 /** Quem está vendo e controlando este computador (anfitrião em sessão liberada), ou null. */
 export function parceiroControlando(estado: EstadoSessao): IdCliente | null {
@@ -101,6 +113,8 @@ export interface OpcoesControlador {
   aoMensagemArquivos?: (dados: string | ArrayBuffer) => void;
   /** Mensagem do chat vinda do outro computador (só com a sessão liberada). */
   aoReceberChat?: (texto: string) => void;
+  /** Anfitrião: os monitores deste computador, da esquerda para a direita. */
+  listarMonitores?: () => Promise<Monitor[]>;
   /** Anfitrião: há senha de acesso não supervisionado definida? */
   senhaDefinida?: () => Promise<boolean>;
   /** Anfitrião: confere a senha recebida (com limite de tentativas). */
@@ -179,6 +193,10 @@ export class ControladorSessao {
   /** Canal de arquivos do par atual (aberto), e o que foi entregue por último a quem usa. */
   private canalArquivos: CanalArquivos | null = null;
   private canalArquivosEntregue: CanalArquivos | null = null;
+  /** Anfitrião: monitor sendo capturado (null antes de a imagem começar). */
+  private monitorMostrado: IdMonitor | null = null;
+  /** Anfitrião: numera os anúncios de monitores; um anúncio atrasado não vale. */
+  private anuncioMonitores = 0;
 
   constructor(opcoes: OpcoesControlador) {
     this.opcoes = opcoes;
@@ -241,6 +259,25 @@ export class ControladorSessao {
     const estado = this.estadoAtual;
     if (estado.fase !== 'em_sessao' || !estado.liberada || !this.par) return false;
     return this.par.enviarChat(texto);
+  }
+
+  /** Visualizador: pede para ver outro monitor do anfitrião (um dos que ele informou). */
+  escolherMonitor(id: IdMonitor): void {
+    const estado = this.estadoAtual;
+    if (estado.fase !== 'em_sessao' || estado.papel !== 'visualizador' || !estado.liberada) return;
+    if (!estado.monitores || estado.monitores.atual === id) return;
+    if (!estado.monitores.lista.some((m) => m.id === id)) return;
+    this.par?.escolherMonitor(id);
+  }
+
+  /**
+   * Anfitrião: os monitores deste computador mudaram (entrou, saiu, mudou de
+   * resolução). Se o mostrado saiu, volta ao principal; e avisa o visualizador.
+   */
+  monitoresMudaram(): void {
+    const par = this.par;
+    if (!par || this.monitorMostrado === null || !this.anfitriaoLiberado()) return;
+    void this.anunciarMonitores(par, true);
   }
 
   /** Cancela o pedido ou encerra a sessão (qualquer um dos lados). */
@@ -410,6 +447,7 @@ export class ControladorSessao {
       porSenha,
       liberada: !porSenha,
       reconectandoAte: null,
+      monitores: null,
     });
 
     const par = this.opcoes.criarPar({
@@ -445,6 +483,16 @@ export class ControladorSessao {
       aoReceberChat: (texto) => {
         const estado = this.estadoAtual;
         if (this.par === par && estado.fase === 'em_sessao' && estado.liberada) this.opcoes.aoReceberChat?.(texto);
+      },
+      // Monitores: só da conexão atual e com a sessão liberada.
+      aoReceberMonitores: (lista, atual) => {
+        const estado = this.estadoAtual;
+        if (this.par === par && estado.fase === 'em_sessao' && estado.papel === 'visualizador' && estado.liberada) {
+          this.atualizarSessao({ monitores: { lista, atual } });
+        }
+      },
+      aoEscolherMonitor: (id) => {
+        if (this.par === par) void this.trocarMonitor(par, id);
       },
       aoMudarCanalArquivos: (canal) => {
         if (this.par !== par) return;
@@ -493,7 +541,7 @@ export class ControladorSessao {
 
     if (papel === 'anfitriao' && !porSenha) {
       // Aceite comum: a tela começa a ir já.
-      par.liberarTela().catch((erro: unknown) => this.falhaNaConexao(erro));
+      this.liberarTela(par);
     } else if (papel === 'anfitriao') {
       // Por senha: se ela não chegar a tempo, a sessão acaba.
       this.prazoSenha = setTimeout(
@@ -596,10 +644,77 @@ export class ControladorSessao {
       clearTimeout(this.prazoSenha);
       this.atualizarSessao({ liberada: true });
       par.confirmarAutenticacao();
-      par.liberarTela().catch((erro: unknown) => this.falhaNaConexao(erro));
+      this.liberarTela(par);
     } else {
       this.encerrarPorFalha(resultado === 'bloqueada' ? 'senha_bloqueada' : 'senha_incorreta');
     }
+  }
+
+  private anfitriaoLiberado(): boolean {
+    const estado = this.estadoAtual;
+    return estado.fase === 'em_sessao' && estado.papel === 'anfitriao' && estado.liberada;
+  }
+
+  /** Anfitrião: começa a enviar a tela (monitor principal) e conta ao visualizador quais monitores há. */
+  private liberarTela(par: Par): void {
+    par.liberarTela().then(
+      (monitor) => {
+        if (this.par !== par || monitor === null) return;
+        this.monitorMostrado = monitor;
+        void this.anunciarMonitores(par, false);
+      },
+      (erro: unknown) => {
+        if (this.par === par) this.falhaNaConexao(erro);
+      },
+    );
+  }
+
+  /**
+   * Anfitrião: passa a mostrar outro monitor (id null: o principal). Pelo
+   * visualizador, só um dos monitores anunciados. Se a captura falhar, o
+   * monitor anterior continua (a sessão não cai por isso).
+   */
+  private async trocarMonitor(par: Par, id: IdMonitor | null): Promise<void> {
+    const estado = this.estadoAtual;
+    if (estado.fase !== 'em_sessao' || !this.anfitriaoLiberado() || this.monitorMostrado === null) return;
+    if (id !== null && !estado.monitores?.lista.some((m) => m.id === id)) return;
+    if (id === this.monitorMostrado) return;
+    try {
+      const monitor = await par.trocarMonitor(id);
+      if (this.par !== par) return;
+      if (monitor !== null) this.monitorMostrado = monitor;
+    } catch (erro) {
+      console.warn('[sessao] não foi possível trocar de monitor:', erro);
+      if (this.par !== par) return;
+    }
+    // Mesmo se falhou: o visualizador fica sabendo qual continua à vista.
+    await this.anunciarMonitores(par, false);
+  }
+
+  /**
+   * Anfitrião: envia ao visualizador a lista de monitores e qual está à vista.
+   * "conferirMostrado": se o monitor mostrado não existe mais, volta ao principal.
+   */
+  private async anunciarMonitores(par: Par, conferirMostrado: boolean): Promise<void> {
+    const numero = ++this.anuncioMonitores;
+    let lista: Monitor[];
+    try {
+      lista = (await this.opcoes.listarMonitores?.()) ?? [];
+    } catch (erro) {
+      console.warn('[sessao] não foi possível listar os monitores:', erro);
+      return;
+    }
+    // Outro anúncio começou depois deste (ou a sessão acabou): este não vale mais.
+    if (this.par !== par || numero !== this.anuncioMonitores || !this.anfitriaoLiberado()) return;
+    const atual = this.monitorMostrado;
+    if (atual === null) return;
+    if (!lista.some((m) => m.id === atual)) {
+      // O monitor mostrado foi desconectado: volta ao principal (e anuncia depois).
+      if (conferirMostrado) void this.trocarMonitor(par, null);
+      return;
+    }
+    this.atualizarSessao({ monitores: { lista, atual } });
+    par.enviarMonitores(lista, atual);
   }
 
   private falhaNaConexao(erro: unknown): void {
@@ -620,6 +735,7 @@ export class ControladorSessao {
     latenciaMs?: number;
     liberada?: boolean;
     reconectandoAte?: number | null;
+    monitores?: MonitoresSessao;
   }): void {
     if (this.estadoAtual.fase === 'em_sessao') this.mudar({ ...this.estadoAtual, ...mudancas });
   }
@@ -631,6 +747,7 @@ export class ControladorSessao {
     this.pararReconexao();
     this.conferindoSenha = false;
     this.jaConectou = false;
+    this.monitorMostrado = null;
     this.ligadoNoServidor = false;
     this.canalArquivos = null;
     const par = this.par;
