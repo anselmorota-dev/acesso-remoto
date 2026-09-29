@@ -19,11 +19,17 @@ export function textoParaEnviar(texto: string): string | null {
   return limpo && limpo.length <= CHAT_TEXTO_MAXIMO ? limpo : null;
 }
 
+/**
+ * Gerações únicas entre todas as conversas: com várias sessões, a tela troca
+ * de conversa ao trocar de aba e precisa perceber que é outra (redesenha tudo).
+ */
+let proximaGeracao = 1;
+
 export class ConversaChat {
   private readonly lista: MensagemChat[] = [];
   private naoLidasAgora = 0;
   private adicionadas = 0;
-  private geracaoAtual = 0;
+  private geracaoAtual = proximaGeracao++;
   private readonly agora: () => number;
 
   constructor(agora: () => number = Date.now) {
@@ -46,7 +52,7 @@ export class ConversaChat {
     return this.adicionadas;
   }
 
-  /** Muda a cada limpeza (nova conversa): a tela sabe que precisa redesenhar tudo. */
+  /** Muda a cada limpeza e é diferente em cada conversa: a tela sabe que precisa redesenhar tudo. */
   get geracao(): number {
     return this.geracaoAtual;
   }
@@ -68,6 +74,6 @@ export class ConversaChat {
     this.lista.length = 0;
     this.naoLidasAgora = 0;
     this.adicionadas = 0;
-    this.geracaoAtual++;
+    this.geracaoAtual = proximaGeracao++;
   }
 }

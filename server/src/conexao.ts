@@ -3,12 +3,12 @@ import type { WebSocket } from 'ws';
 import type { IdCliente, Papel } from '@acesso-remoto/shared';
 
 /**
- * Em que situação a conexão está em relação a outra.
+ * Em que situação a conexão está em relação a UM parceiro (uma conexão pode
+ * ter vários: o visualizador acessa até MAXIMO_SESSOES computadores).
  * Os dois lados são sempre atualizados juntos: se A está "pedindo" para B,
  * B está com "pedido_recebido" de A; se A está "em_sessao" com B, B também.
  */
 export type Vinculo =
-  | { tipo: 'livre' }
   /** Visualizador aguardando o anfitrião responder. */
   | { tipo: 'pedindo'; anfitriao: Conexao; prazo: ReturnType<typeof setTimeout> }
   /** Anfitrião com um pedido para responder. */
@@ -45,7 +45,11 @@ export interface Conexao {
   registro: { chavePublica: string; desafio: string; provando?: boolean } | null;
   /** Vira false a cada ping e volta a true quando chega o pong. */
   viva: boolean;
-  vinculo: Vinculo;
+  /**
+   * Pedidos e sessões desta conexão, pelo ID do parceiro. Anfitrião: no máximo
+   * um. Visualizador: até MAXIMO_SESSOES. Vazio = livre.
+   */
+  vinculos: Map<IdCliente, Vinculo>;
 }
 
 /** Conexão que já recebeu um ID. */

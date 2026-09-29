@@ -16,6 +16,8 @@ export interface OpcoesTelaSessao {
   /** Botão do painel: cancela o pedido ou encerra a sessão. */
   aoEncerrar: () => void;
   aoResponderPedido: (aceito: boolean) => void;
+  /** "Fechar" o aviso de uma sessão que acabou (quem guarda o aviso é o main.ts). */
+  aoDispensarAviso?: () => void;
 }
 
 const TEXTO_CONEXAO = {
@@ -81,8 +83,12 @@ export function montarTelaSessao(opcoes: OpcoesTelaSessao): TelaSessao {
   }
 
   botao.addEventListener('click', () => {
-    if (estado.fase === 'livre') painel.hidden = true; // "Fechar" só dispensa o aviso
-    else opcoes.aoEncerrar();
+    if (estado.fase === 'livre') {
+      painel.hidden = true; // "Fechar" só dispensa o aviso
+      opcoes.aoDispensarAviso?.();
+    } else {
+      opcoes.aoEncerrar();
+    }
   });
   aceitar.addEventListener('click', () => opcoes.aoResponderPedido(true));
   recusar.addEventListener('click', () => opcoes.aoResponderPedido(false));

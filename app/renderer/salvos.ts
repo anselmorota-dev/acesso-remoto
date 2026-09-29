@@ -20,12 +20,13 @@ export class SalvarAoConectar {
   }
 
   /**
-   * A cada mudança da sessão: devolve o que salvar quando a sessão com esse
-   * computador fica liberada; descarta o pedido se a tentativa acabar antes.
+   * A cada mudança de uma sessão (com várias abertas, cada uma avisa com o
+   * seu parceiro): devolve o que salvar quando a sessão com esse computador
+   * fica liberada; descarta o pedido se a tentativa com ele acabar antes.
    */
-  aoMudarEstado(estado: EstadoSessao): PedidoSalvar | null {
+  aoMudarEstado(parceiro: IdCliente, estado: EstadoSessao): PedidoSalvar | null {
     const pendente = this.pendente;
-    if (!pendente) return null;
+    if (!pendente || parceiro !== pendente.id) return null;
     if (estado.fase === 'em_sessao' && estado.papel === 'visualizador' && estado.parceiro === pendente.id && estado.liberada) {
       this.pendente = null;
       return pendente;

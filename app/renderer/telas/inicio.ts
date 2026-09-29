@@ -3,12 +3,15 @@
 // devolve "atualizar", que redesenha a tela a partir do estado atual.
 import type { IdCliente } from '@acesso-remoto/shared';
 import { ehIdValido, extrairDigitos, formatarId } from '../id';
-import type { EstadoSessao } from '../sessao';
 import type { EstadoSinalizacao } from '../sinalizacao';
 import { elemento } from './util';
 
 export interface TelaInicio {
-  atualizar(estado: EstadoSinalizacao, sessao: EstadoSessao): void;
+  /**
+   * "bloqueio": null se dá para acessar mais um computador agora; senão, o
+   * motivo mostrado abaixo do formulário (vazio = só desabilita).
+   */
+  atualizar(estado: EstadoSinalizacao, bloqueio: string | null): void;
   /** Mostra um aviso abaixo do formulário (ex.: senha salva que não decifrou). */
   avisar(texto: string): void;
 }
@@ -37,14 +40,14 @@ export function montarTelaInicio(opcoes: OpcoesTelaInicio): TelaInicio {
   let avisoExterno = '';
 
   let estado: EstadoSinalizacao = { fase: 'conectando' };
-  let sessao: EstadoSessao = { fase: 'livre' };
+  let bloqueio: string | null = null;
 
   /** Liga/desliga o botão Conectar e explica o motivo quando desligado. */
   function atualizarFormulario(): void {
     const digitos = extrairDigitos(campoRemoto.value);
     const online = estado.fase === 'online';
     const proprioId = estado.fase === 'online' && digitos === estado.id;
-    const livre = sessao.fase === 'livre';
+    const livre = bloqueio === null;
 
     botaoConectar.disabled = !online || !livre || !ehIdValido(digitos) || proprioId;
     if (avisoExterno) {
@@ -53,6 +56,8 @@ export function montarTelaInicio(opcoes: OpcoesTelaInicio): TelaInicio {
       aviso.textContent = 'Esse é o ID deste computador.';
     } else if (digitos.length === 9 && !ehIdValido(digitos)) {
       aviso.textContent = 'ID inválido: não pode começar com 0.';
+    } else if (bloqueio) {
+      aviso.textContent = bloqueio;
     } else {
       aviso.textContent = '';
     }
@@ -101,9 +106,9 @@ export function montarTelaInicio(opcoes: OpcoesTelaInicio): TelaInicio {
       avisoExterno = texto;
       atualizarFormulario();
     },
-    atualizar(novoEstado, novaSessao) {
+    atualizar(novoEstado, novoBloqueio) {
       estado = novoEstado;
-      sessao = novaSessao;
+      bloqueio = novoBloqueio;
       status.dataset['fase'] = estado.fase;
 
       if (estado.fase === 'online') {

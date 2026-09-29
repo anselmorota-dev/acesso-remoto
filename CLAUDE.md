@@ -138,6 +138,29 @@ quando houver um Mac. Pendente do usuário: teste real entre duas redes (2.5; o 
 a conexão ficou "direto" ou "via servidor TURN"), que pode ser feito já com o instalador.
 
 Decisões já tomadas:
+- Várias sessões (pedido do usuário, versão 0.2.0, protocolo v13; escolhas: abas na janela,
+  até 4, e quem acessa outros não é acessado). Servidor: `Conexao.vinculos` (um vínculo por
+  parceiro, `Map`) no lugar de um vínculo só; anfitrião com no máximo um e só recebe pedido
+  se estiver totalmente livre ("ocupado" se estiver acessando outros); quem é acessado não
+  acessa (`ja_em_sessao`); visualizador até `MAXIMO_SESSOES` = 4 (`limite_sessoes`; pedidos
+  contam). Protocolo: `sinal` e `encerrar` (app → servidor) e `sinal` e `sessao_encerrada`
+  (servidor → app) levam `parceiro`; `erro` leva `parceiro` quando é sobre um pedido ou
+  sessão. Queda de conexão trata cada sessão (cada anfitrião recebe `parceiro_ausente`; o
+  visualizador declara `retomar` para cada uma). App: `renderer/gerenciador-sessoes.ts`
+  (testado com três apps no servidor real) cria um ControladorSessao por computador, entrega
+  cada mensagem pelo parceiro e o tira da lista quando a sessão acaba. `renderer/main.ts`:
+  uma `SessaoAberta` por computador (estado, vídeo, conversa do chat, lista de arquivos); as
+  telas mostram a "sessão visível" (a de quem acessa este computador, sem abas, ou a da aba
+  à vista). Abas (`telas/abas.ts`): Início + uma por computador (apelido salvo ou ID,
+  bolinha de situação, não lidas do chat, × encerra). Mouse e teclado só para a aba à vista
+  (trocar de aba solta o que estava apertado); área de transferência copiada vai só para a
+  aba à vista (ou para quem controla este computador); ligada com qualquer sessão liberada.
+  Sessão que acaba: vai para a última aba aberta (ou Início) e o motivo aparece no painel.
+  Gerações do chat únicas entre conversas (`ConversaChat`), senão a tela misturava conversas
+  ao trocar de aba. "Salvar este computador" confere o parceiro (o fim de outra sessão não
+  descarta o pedido). Testado (E2E com três apps): abas, vídeo por aba, mouse só no computador
+  à vista (contador no canal de cada anfitrião), bloqueio de quem é acessado, chat não lido
+  na aba certa, fechar uma aba sem mexer na outra.
 - Computadores salvos (pedido do usuário, versão 0.1.2; escolhas: só salva quando marcar
   "Salvar este computador", e um clique no salvo conecta direto). No visualizador:
   `main/conexoes-salvas.ts` (testado) guarda ID, apelido e a senha de acesso em
@@ -434,8 +457,9 @@ Decisões já tomadas:
   Esc = recusar), para cumprir a regra de segurança desde a primeira conexão.
 - Sessões no servidor (`server/src/sessoes.ts`): conectar → pedido_conexao → responder_pedido
   → sessao_iniciada (para os dois). Só depois disso o servidor repassa `sinal` entre o par;
-  pedido expira em 30 s; um pedido/sessão por vez de cada lado; queda durante o pedido avisa
-  o parceiro (durante a sessão, ver "Sessões longas").
+  pedido expira em 30 s; o anfitrião tem um pedido/sessão por vez e o visualizador até 4 (ver
+  "Várias sessões"); queda durante o pedido avisa o parceiro (durante a sessão, ver "Sessões
+  longas").
 - Pedido de acesso (2.1): `pedido_conexao` traz `prazoMs` (protocolo v2); o servidor é a única
   fonte do prazo, o app só mostra a contagem (`expiraEm` no estado). Ao chegar um pedido, o
   renderer chama `window.api.chamarAtencao()` (IPC `janela:chamar-atencao`, só aceito do quadro
@@ -500,8 +524,10 @@ Decisões já tomadas:
 - `encerrar` aceita `motivo` (`captura_indisponivel` | `falha_conexao`), repassado ao parceiro.
 - Visualizador: `renderer/telas/visualizacao.ts` troca a janela para o vídeo remoto
   (`body[data-tela='remota']`), com `object-fit: contain`.
-- `renderer/sessao.ts` (ControladorSessao) é a máquina de estados da sessão; recebe a
-  conexão WebRTC por injeção (`criarPar`) para ser testada no Node com um par falso.
+- `renderer/sessao.ts` (ControladorSessao) é a máquina de estados de UMA sessão; recebe a
+  conexão WebRTC por injeção (`criarPar`) para ser testada no Node com um par falso
+  (`renderer/par-falso.ts`, usado também pelos testes do gerenciador). Com várias sessões, o
+  `GerenciadorSessoes` cria um controlador por computador.
 
 Notas para as próximas etapas:
 - robotjs: o npm desta máquina bloqueia scripts de instalação (`install: node-gyp-build`); não

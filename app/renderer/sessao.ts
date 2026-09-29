@@ -314,7 +314,7 @@ export class ControladorSessao {
     const estavaEmSessao = estado.fase === 'em_sessao';
     // Pelo servidor e pela conexão direta: o outro lado fica sabendo mesmo
     // que um dos dois caminhos esteja fora do ar.
-    this.opcoes.enviar({ tipo: 'encerrar' });
+    this.encerrarNoServidor();
     this.fecharPar({});
     this.mudar({ fase: 'livre', aviso: estavaEmSessao ? 'Sessão encerrada.' : undefined });
   }
@@ -476,7 +476,7 @@ export class ControladorSessao {
       aoMudarRota: (rota) => {
         if (this.par === par) this.atualizarSessao({ rota });
       },
-      enviarSinal: (sinal) => this.opcoes.enviar({ tipo: 'sinal', sinal }),
+      enviarSinal: (sinal) => this.opcoes.enviar({ tipo: 'sinal', parceiro, sinal }),
       aoMudarEstado: (conexao) => {
         if (this.par === par) this.aoMudarConexaoDireta(conexao);
       },
@@ -553,7 +553,7 @@ export class ControladorSessao {
         if (this.par !== par || this.estadoAtual.fase !== 'em_sessao') return;
         // Avisa o servidor também: se o outro lado estava fora dele, o servidor
         // ainda guarda esta sessão esperando a retomada.
-        this.opcoes.enviar({ tipo: 'encerrar' });
+        this.encerrarNoServidor();
         this.fecharPar();
         this.mudar({ fase: 'livre', aviso: TEXTO_ENCERRAMENTO[motivo ?? 'encerrada_pelo_parceiro'] });
       },
@@ -669,7 +669,7 @@ export class ControladorSessao {
 
   private desistirDeReconectar(): void {
     if (this.estadoAtual.fase !== 'em_sessao') return;
-    this.opcoes.enviar({ tipo: 'encerrar', motivo: 'falha_conexao' });
+    this.encerrarNoServidor('falha_conexao');
     this.fecharPar({ motivo: 'falha_conexao' });
     this.mudar({ fase: 'livre', aviso: TEXTO_RECONEXAO_ESGOTADA });
   }
@@ -779,6 +779,21 @@ export class ControladorSessao {
     par.enviarMonitores(lista, atual);
   }
 
+  /** Com quem é o pedido ou a sessão atual (o servidor precisa saber: o visualizador pode ter vários). */
+  private parceiroAtual(): IdCliente | null {
+    const estado = this.estadoAtual;
+    if (estado.fase === 'pedindo') return estado.destino;
+    if (estado.fase === 'pedido_recebido') return estado.origem;
+    if (estado.fase === 'em_sessao') return estado.parceiro;
+    return null;
+  }
+
+  /** Avisa o servidor que o pedido ou a sessão com o parceiro atual acabou. */
+  private encerrarNoServidor(motivo?: MotivoFalha): void {
+    const parceiro = this.parceiroAtual();
+    if (parceiro) this.opcoes.enviar({ tipo: 'encerrar', parceiro, ...(motivo ? { motivo } : {}) });
+  }
+
   private falhaNaConexao(erro: unknown): void {
     console.error('[sessao] falha na sessão:', erro);
     this.encerrarPorFalha(erro instanceof ErroCaptura ? 'captura_indisponivel' : 'falha_conexao');
@@ -787,7 +802,7 @@ export class ControladorSessao {
   /** Encerra a sessão por uma falha deste lado, avisando o outro do motivo. */
   private encerrarPorFalha(motivo: MotivoFalha): void {
     if (this.estadoAtual.fase !== 'em_sessao') return;
-    this.opcoes.enviar({ tipo: 'encerrar', motivo });
+    this.encerrarNoServidor(motivo);
     this.fecharPar(avisoPeloCanal(motivo));
     this.mudar({ fase: 'livre', aviso: TEXTO_FALHA_LOCAL[motivo] });
   }

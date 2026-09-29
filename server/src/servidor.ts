@@ -109,8 +109,8 @@ export async function iniciarServidor(opcoes: OpcoesServidor): Promise<ServidorS
     }
   }
 
-  function enviarErro(conexao: Conexao, codigo: CodigoErro, mensagem: string): void {
-    enviar(conexao, { tipo: 'erro', codigo, mensagem });
+  function enviarErro(conexao: Conexao, codigo: CodigoErro, mensagem: string, parceiro?: IdCliente): void {
+    enviar(conexao, { tipo: 'erro', codigo, mensagem, ...(parceiro ? { parceiro } : {}) });
   }
 
   const sessoes = criarGerenciadorSessoes({
@@ -248,7 +248,7 @@ export async function iniciarServidor(opcoes: OpcoesServidor): Promise<ServidorS
       case 'conectar':
         // Limite de taxa por IP e por ID: barra quem fica varrendo IDs.
         if (!limites.pedido(registrada.ip, registrada.id)) {
-          enviarErro(registrada, 'limite_excedido', 'Muitos pedidos de conexão seguidos; aguarde um minuto');
+          enviarErro(registrada, 'limite_excedido', 'Muitos pedidos de conexão seguidos; aguarde um minuto', mensagem.destino);
           return;
         }
         sessoes.conectar(registrada, mensagem.destino, mensagem.comSenha);
@@ -257,10 +257,10 @@ export async function iniciarServidor(opcoes: OpcoesServidor): Promise<ServidorS
         sessoes.responder(registrada, mensagem.origem, mensagem.aceito, mensagem.porSenha);
         return;
       case 'sinal':
-        sessoes.repassarSinal(registrada, mensagem.sinal);
+        sessoes.repassarSinal(registrada, mensagem.parceiro, mensagem.sinal);
         return;
       case 'encerrar':
-        sessoes.encerrar(registrada, mensagem.motivo ?? 'encerrada_pelo_parceiro');
+        sessoes.encerrar(registrada, mensagem.parceiro, mensagem.motivo ?? 'encerrada_pelo_parceiro');
         return;
       case 'retomar':
         sessoes.retomar(registrada, mensagem.parceiro, mensagem.papel, mensagem.porSenha);
@@ -283,7 +283,7 @@ export async function iniciarServidor(opcoes: OpcoesServidor): Promise<ServidorS
       id: null,
       registro: null,
       viva: true,
-      vinculo: { tipo: 'livre' },
+      vinculos: new Map(),
     };
     conexoes.add(conexao);
 

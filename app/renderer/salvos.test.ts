@@ -25,23 +25,26 @@ function emSessao(liberada: boolean, parceiro = '123456789'): EstadoSessao {
 test('salva quando a sessão com esse computador fica liberada (senha conferida)', () => {
   const regra = new SalvarAoConectar();
   regra.pedir(pedido);
-  assert.equal(regra.aoMudarEstado({ fase: 'pedindo', destino: '123456789', comSenha: true }), null);
-  assert.equal(regra.aoMudarEstado(emSessao(false)), null); // ainda conferindo a senha
-  assert.deepEqual(regra.aoMudarEstado(emSessao(true)), pedido);
-  assert.equal(regra.aoMudarEstado(emSessao(true)), null); // uma vez só
+  assert.equal(regra.aoMudarEstado('123456789', { fase: 'pedindo', destino: '123456789', comSenha: true }), null);
+  assert.equal(regra.aoMudarEstado('123456789', emSessao(false)), null); // ainda conferindo a senha
+  assert.deepEqual(regra.aoMudarEstado('123456789', emSessao(true)), pedido);
+  assert.equal(regra.aoMudarEstado('123456789', emSessao(true)), null); // uma vez só
 });
 
 test('senha errada, recusa ou falha: não salva (e esquece o pedido)', () => {
   const regra = new SalvarAoConectar();
   regra.pedir(pedido);
-  regra.aoMudarEstado(emSessao(false));
-  assert.equal(regra.aoMudarEstado({ fase: 'livre', aviso: 'Senha incorreta.' }), null);
+  regra.aoMudarEstado('123456789', emSessao(false));
+  assert.equal(regra.aoMudarEstado('123456789', { fase: 'livre', aviso: 'Senha incorreta.' }), null);
   // Uma sessão liberada depois (outra tentativa, sem marcar "Salvar") não salva o pedido antigo.
-  assert.equal(regra.aoMudarEstado(emSessao(true)), null);
+  assert.equal(regra.aoMudarEstado('123456789', emSessao(true)), null);
 });
 
 test('sessão com outro computador não salva o pedido', () => {
   const regra = new SalvarAoConectar();
   regra.pedir(pedido);
-  assert.equal(regra.aoMudarEstado(emSessao(true, '987654321')), null);
+  assert.equal(regra.aoMudarEstado('987654321', emSessao(true, '987654321')), null);
+  // O fim de uma sessão com outro computador não descarta o pedido.
+  assert.equal(regra.aoMudarEstado('987654321', { fase: 'livre' }), null);
+  assert.deepEqual(regra.aoMudarEstado('123456789', emSessao(true)), pedido);
 });

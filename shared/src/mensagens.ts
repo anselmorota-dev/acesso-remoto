@@ -133,10 +133,10 @@ export const esquemaMensagemDoCliente = z.discriminatedUnion('tipo', [
      */
     porSenha: z.boolean(),
   }),
-  /** Sinal WebRTC para o outro lado da sessão. */
-  z.object({ tipo: z.literal('sinal'), sinal: esquemaSinal }),
-  /** Cancela o pedido em andamento ou encerra a sessão atual (com o motivo, se foi falha). */
-  z.object({ tipo: z.literal('encerrar'), motivo: esquemaMotivoFalha.optional() }),
+  /** Sinal WebRTC para o outro lado da sessão com "parceiro" (o visualizador pode ter várias). */
+  z.object({ tipo: z.literal('sinal'), parceiro: esquemaId, sinal: esquemaSinal }),
+  /** Cancela o pedido ou encerra a sessão com "parceiro" (com o motivo, se foi falha). */
+  z.object({ tipo: z.literal('encerrar'), parceiro: esquemaId, motivo: esquemaMotivoFalha.optional() }),
   /**
    * Depois de reconectar ao servidor: "eu continuo na sessão com este parceiro".
    * A conexão direta não depende do servidor, então a sessão sobrevive a uma
@@ -181,7 +181,12 @@ export const esquemaCodigoErro = z.enum([
   'substituida',
   /** Muitas tentativas seguidas (pedidos, instalações novas): aguarde um pouco. */
   'limite_excedido',
+  /** O visualizador já tem o máximo de pedidos/sessões ao mesmo tempo. */
+  'limite_sessoes',
 ]);
+
+/** Quantos computadores um visualizador acessa ao mesmo tempo (escolha do usuário). */
+export const MAXIMO_SESSOES = 4;
 export type CodigoErro = z.infer<typeof esquemaCodigoErro>;
 
 export const esquemaMotivoRecusa = z.enum([
@@ -213,7 +218,13 @@ export const esquemaMensagemDoServidor = z.discriminatedUnion('tipo', [
   z.object({ tipo: z.literal('desafio'), desafio: esquemaDesafio }),
   /** Resposta ao "provar" aceito: o ID fixo desta instalação. */
   z.object({ tipo: z.literal('registrado'), id: esquemaId }),
-  z.object({ tipo: z.literal('erro'), codigo: esquemaCodigoErro, mensagem: z.string() }),
+  z.object({
+    tipo: z.literal('erro'),
+    codigo: esquemaCodigoErro,
+    mensagem: z.string(),
+    /** Quando o erro é sobre um pedido ou sessão com alguém (o visualizador pode ter vários). */
+    parceiro: esquemaId.optional(),
+  }),
   /**
    * Para o anfitrião: alguém quer acessar este computador. "prazoMs" é quanto
    * tempo ele tem para responder antes de o servidor cancelar o pedido
@@ -244,9 +255,9 @@ export const esquemaMensagemDoServidor = z.discriminatedUnion('tipo', [
     iceServers: z.array(esquemaServidorIce).max(4).optional(),
   }),
   /** Sinal WebRTC vindo do outro lado da sessão. */
-  z.object({ tipo: z.literal('sinal'), sinal: esquemaSinal }),
+  z.object({ tipo: z.literal('sinal'), parceiro: esquemaId, sinal: esquemaSinal }),
   /** A sessão terminou pelo outro lado. */
-  z.object({ tipo: z.literal('sessao_encerrada'), motivo: esquemaMotivoEncerramento }),
+  z.object({ tipo: z.literal('sessao_encerrada'), parceiro: esquemaId, motivo: esquemaMotivoEncerramento }),
   /**
    * O parceiro perdeu a conexão com o servidor. A sessão continua (a conexão
    * direta não passa pelo servidor), mas sinais só voltam a passar depois
