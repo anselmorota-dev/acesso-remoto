@@ -96,8 +96,8 @@ Não tenho pressa: prefiro entender cada parte a avançar rápido.
 - [x] 2.2 DataChannel com eventos de mouse (mover, clicar, rolar)
 - [x] 2.3 Teclado, incluindo atalhos (Ctrl, Alt, Shift) e caracteres com acento
 - [x] 2.4 Encerrar sessão pelos dois lados; indicador de sessão ativa
-- [ ] 2.5 Deploy do servidor no Render e teste entre duas redes diferentes
-- **Pronto quando:** consigo usar outro computador de verdade, pela internet.
+- [x] 2.5 Deploy do servidor no Render e teste entre duas redes diferentes
+- **Pronto:** ✅ fase 2 concluída em 29/09/2026 (teste entre duas redes: conexão direta)
 
 ### Fase 3 — Acesso não supervisionado
 - [x] 3.1 Definir senha no anfitrião (hash local)
@@ -118,7 +118,7 @@ Não tenho pressa: prefiro entender cada parte a avançar rápido.
 - [x] 5.1 Múltiplos monitores (escolher qual ver)
 - [x] 5.2 Qualidade adaptativa à conexão
 - [ ] 5.3 Servidor TURN para redes corporativas (código pronto; falta ativar a chave da
-  Cloudflare, se o teste entre redes mostrar necessidade)
+  Cloudflare, se alguma rede não conectar direto: no teste entre redes, conectou direto)
 - [x] 5.4 Instalador para Windows
 - [ ] 5.4b Instalador para macOS (configurado; falta gerar e testar num Mac)
 
@@ -128,14 +128,15 @@ Não tenho pressa: prefiro entender cada parte a avançar rápido.
 - **Render (plano gratuito):** o servidor "dorme" sem uso; a primeira conexão pode demorar alguns segundos.
 
 ## Estado atual
-Fase 1 concluída. Fase 2: 2.1 a 2.4 concluídas; 2.5 publicada e testada na mesma máquina,
-falta o teste entre duas redes (o usuário fará depois, com outro notebook). Fase 3 concluída
+Fase 1 concluída. Fase 2 concluída (29/09/2026: teste real entre duas redes, conexão direta,
+com o outro notebook). Fase 3 concluída
 (28/09/2026). Fase 4 concluída (28/09/2026; servidor com protocolo v9): sessões longas,
 área de transferência, arquivos e chat. Fase 5: 5.1 e 5.2 concluídas (29/09/2026); 5.3 com o
-código pronto e o TURN desligado (protocolo v12), ativar só se o teste entre redes mostrar
-necessidade. 5.4: instalador do Windows pronto e testado (29/09/2026); o do macOS ficou para
-quando houver um Mac. Pendente do usuário: teste real entre duas redes (2.5; o painel mostra se
-a conexão ficou "direto" ou "via servidor TURN"), que pode ser feito já com o instalador.
+código pronto e o TURN desligado (protocolo v12); ativar só se alguma rede não conectar direto
+(o painel mostra "direto" ou "via servidor TURN"). 5.4: instalador do Windows pronto e testado
+(29/09/2026); o do macOS ficou para quando houver um Mac. Depois do roteiro (pedidos do
+usuário): correção do travamento ao minimizar (processo de input, 0.1.1), computadores salvos
+(0.1.2) e várias sessões em abas (0.2.0, protocolo v13).
 
 Decisões já tomadas:
 - Várias sessões (pedido do usuário, versão 0.2.0, protocolo v13; escolhas: abas na janela,
@@ -513,8 +514,8 @@ Decisões já tomadas:
   --omit=dev` (não instala o Electron), start `npm start -w @acesso-remoto/server` (tsx é
   dependência de produção do servidor), Node 24, verificação em `/saude`, deploy a cada push.
   Publicado (28/09/2026) e testado: duas instâncias nesta máquina conectam pelo Render (sessão,
-  vídeo, latência ~12 ms). Falta só o teste entre duas redes diferentes (outro notebook), que o
-  usuário fará depois; quando passar, marcar a 2.5.
+  vídeo, latência ~12 ms). Teste entre duas redes diferentes (outro notebook) feito pelo
+  usuário em 29/09/2026: conectou direto (sem TURN).
 - Captura (1.5): o renderer chama `getDisplayMedia`; o main (`main/captura.ts`) autoriza só
   pedidos do quadro principal das nossas janelas e entrega o monitor escolhido (5.1). Até 30 fps,
   `contentHint = 'detail'` (perfil nitidez; a 5.2 troca para "motion" na fluidez). O vídeo
