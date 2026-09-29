@@ -41,7 +41,13 @@ export default defineConfig({
   main: {
     build: {
       externalizeDeps,
-      rollupOptions: { input: { index: resolve(__dirname, 'main/index.ts') } },
+      rollupOptions: {
+        input: {
+          index: resolve(__dirname, 'main/index.ts'),
+          // Processo de input (utility process): mouse e teclado fora do main.
+          'processo-input': resolve(__dirname, 'main/processo-input.ts'),
+        },
+      },
     },
   },
   preload: {

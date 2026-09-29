@@ -4,7 +4,7 @@
 // aqui qual monitor a próxima captura deve entregar (CANAL_MONITORES_PREPARAR)
 // e chama getDisplayMedia; o autorizador da captura (captura.ts) entrega esse
 // monitor e anota que é ele que está sendo mostrado. O mouse do visualizador
-// passa a agir só nesse monitor (input.ts usa areaDoMonitorMostrado).
+// passa a agir só nesse monitor (input.ts manda a área ao processo de input).
 //
 // Quando monitores entram, saem ou mudam de resolução/escala, a lista é
 // refeita e a janela principal é avisada (CANAL_MONITORES_MUDOU).
@@ -30,6 +30,7 @@ let mostrado: string | null = null;
 /** A janela que usa os monitores (a principal): recebe o aviso de mudança. */
 let interessado: WebContents | null = null;
 const aoMudar: Array<() => void> = [];
+const aoMudarArea: Array<() => void> = [];
 
 function monitores(): MonitorSistema[] {
   cache ??= montarMonitores(screen.getAllDisplays(), screen.getPrimaryDisplay().id, (d) =>
@@ -48,6 +49,7 @@ export function monitorParaCapturar(): MonitorSistema | null {
 /** O autorizador entregou este monitor: o mouse passa a agir nele. */
 export function definirMonitorMostrado(id: string): void {
   mostrado = id;
+  for (const tratar of aoMudarArea) tratar();
 }
 
 /** Área do monitor mostrado, nas coordenadas do robotjs (se sumiu, a do principal). */
@@ -60,10 +62,16 @@ export function aoMudarMonitores(tratar: () => void): void {
   aoMudar.push(tratar);
 }
 
+/** Registra quem precisa saber quando a área do monitor mostrado muda (o processo de input). */
+export function aoMudarAreaMostrada(tratar: () => void): void {
+  aoMudarArea.push(tratar);
+}
+
 export function configurarMonitores(): void {
   const mudou = () => {
     cache = null;
     for (const tratar of aoMudar) tratar();
+    for (const tratar of aoMudarArea) tratar(); // o mesmo monitor pode ter mudado de lugar ou de escala
     if (interessado && !interessado.isDestroyed()) interessado.send(CANAL_MONITORES_MUDOU);
   };
   screen.on('display-added', mudou);

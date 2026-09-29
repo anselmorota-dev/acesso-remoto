@@ -68,7 +68,9 @@ Não tenho pressa: prefiro entender cada parte a avançar rápido.
 ### Eventos de input
 - Coordenadas do mouse enviadas normalizadas (0 a 1), convertidas para pixels no anfitrião.
 - Mensagens em JSON com tipo definido em /shared (ex.: mousemove, mousedown, keydown).
-- O renderer do anfitrião repassa os eventos ao processo main via IPC; só o main executa input.
+- O renderer do anfitrião repassa os eventos por um MessagePort direto ao processo de input
+  (utility process criado e supervisionado pelo main); só ele executa input. O main não fica
+  no caminho: um laço do Windows no main não trava o controle (ver "Processo de input").
 
 ## Regras de segurança (não negociáveis)
 - Nenhuma sessão começa sem aceite explícito no anfitrião ou senha válida (fase 3).
@@ -136,6 +138,22 @@ quando houver um Mac. Pendente do usuário: teste real entre duas redes (2.5; o 
 a conexão ficou "direto" ou "via servidor TURN"), que pode ser feito já com o instalador.
 
 Decisões já tomadas:
+- Processo de input (correção pós-5.4, versão 0.1.1; escolha do usuário: opção A). Relato do
+  teste entre duas máquinas: o controle remoto travou ao clicar em minimizar a janela do app
+  anfitrião. Causa (reproduzida): o Windows prende o main num laço esperando o botão ser solto
+  (botões da barra de título, arrastar o indicador, menu da bandeja), e o "soltar" do
+  visualizador precisava desse mesmo main (robotjs rodava nele) → travamento mútuo; um clique
+  físico no anfitrião destravava. Arrastar a janela pela barra de título não travava.
+  Correção: mouse e teclado num Electron utility process (`main/processo-input.ts`, lógica
+  testada em `servico-input.ts`), criado e supervisionado pelo main (`main/input.ts`: recria se
+  cair; `ligarJanelaAoInput` só na janela principal). A cada carregamento da página, o main
+  cria um MessageChannelMain: uma ponta ao processo, outra ao preload (`input:porta`), que a
+  guarda e expõe só `input.executar/liberar` (o renderer nunca vê o canal). Os eventos vão
+  renderer → processo de input sem passar pelo main. O main manda ao processo só a área do
+  monitor mostrado, "monitores mudaram" (updateScreenMetrics) e "soltar tudo" (janela fechou,
+  travou ou recarregou; o canal fechando também solta). Testado antes/depois com o mesmo
+  script (clique remoto em minimizar: antes travava; depois minimiza e o controle segue),
+  mouse, teclado (acentos, emoji, atalhos, soltar no fim) e no app instalado.
 - Instalador (5.4; escolhas do usuário: electron-builder, NSIS por usuário sem administrador,
   sem assinatura por enquanto, só Windows agora). `app/electron-builder.yml`; `npm run dist`
   gera `app/dist/Acesso-Remoto-Instalador-<versão>.exe` (~107 MB, quase tudo Electron).
@@ -414,10 +432,12 @@ Decisões já tomadas:
   `renderer/controle.ts` (visualizador; coordenadas 0–1 sobre a área real da imagem, descontando
   as faixas do object-fit; mover/rolar agrupados por requestAnimationFrame; botão leva a posição
   junto) → canal (`mouse_mover`, `mouse_botao`, `mouse_rolar` em `shared/src/canal.ts`) →
-  ControladorSessao (só o anfitrião repassa, só da conexão atual) → IPC `input:executar` →
-  `main/input.ts` valida de novo (Zod) → `main/executor-input.ts` (pixels, limite de 200
+  ControladorSessao (só o anfitrião repassa, só da conexão atual) → MessagePort do preload →
+  processo de input (`main/processo-input.ts` + `servico-input.ts`, valida de novo com Zod) →
+  `main/executor-input.ts` (pixels, limite de 200
   eventos/s por balde de fichas, botões apertados) → robotjs. Fim da sessão, janela fechada ou
-  renderer travado soltam os botões (`input:liberar`); o visualizador solta ao perder o foco.
+  renderer travado soltam os botões (`liberar` pelo canal, ou pelo main); o visualizador solta
+  ao perder o foco.
 - Pixels: desde a 5.1, a área do monitor mostrado em pixels físicos (`dipToScreenRect`, mesmo
   sistema do `moveMouse` no Windows), não os DIP do `screen` do Electron.
   `robot.setMouseDelay(0)`: o padrão (10 ms) trava o main.

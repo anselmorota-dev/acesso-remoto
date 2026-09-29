@@ -12,7 +12,7 @@ import { configurarChat } from './chat';
 import { configurarEnergia } from './energia';
 import { configurarIdentidade } from './identidade';
 import { configurarIndicador } from './indicador';
-import { configurarInput } from './input';
+import { configurarInput, ligarJanelaAoInput } from './input';
 import { configurarMonitores } from './monitores';
 import { configurarSenha } from './senha';
 
@@ -61,6 +61,8 @@ function criarJanelaPrincipal(): void {
   });
 
   janelaPrincipal = janela;
+  // Só a janela principal recebe o canal com o processo de input (mouse e teclado).
+  ligarJanelaAoInput(janela);
   janela.on('closed', () => {
     if (janelaPrincipal === janela) janelaPrincipal = null;
   });
@@ -115,7 +117,7 @@ if (!app.requestSingleInstanceLock()) {
     configurarArquivos();
     configurarIdentidade();
     configurarSenha();
-    configurarInput(); // antes de criar a janela: registra a limpeza ao fechá-la
+    configurarInput(); // antes de criar a janela: o processo de input já está de pé
     criarJanelaPrincipal();
     configurarBandeja({ janela: () => janelaPrincipal, mostrarJanela });
     configurarChat({ mostrarJanela });

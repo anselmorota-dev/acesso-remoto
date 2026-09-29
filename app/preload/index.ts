@@ -20,11 +20,10 @@ import {
   CANAL_INICIO_AUTOMATICO_DEFINIR,
   CANAL_INICIO_AUTOMATICO_LER,
   CANAL_INICIO_AUTOMATICO_MUDOU,
-  CANAL_EXECUTAR_INPUT,
   CANAL_IDENTIDADE_ASSINAR,
   CANAL_IDENTIDADE_CHAVE,
   CANAL_INDICAR_SESSAO,
-  CANAL_LIBERAR_INPUT,
+  CANAL_INPUT_PORTA,
   CANAL_MANTER_ACORDADO,
   CANAL_MONITORES_LISTAR,
   CANAL_MONITORES_MUDOU,
@@ -37,6 +36,15 @@ import {
   type ApiDoPreload,
 } from './api';
 
+// Canal direto com o processo de input (mouse e teclado), entregue pelo main
+// a cada carregamento da página. Fica aqui no preload: o renderer só chama
+// input.executar/liberar e nunca vê o canal.
+let portaInput: Electron.IpcRendererEvent['ports'][number] | null = null;
+ipcRenderer.on(CANAL_INPUT_PORTA, (evento) => {
+  portaInput?.close();
+  portaInput = evento.ports[0] ?? null;
+});
+
 const api: ApiDoPreload = {
   versoes: {
     electron: process.versions.electron ?? '?',
@@ -45,8 +53,8 @@ const api: ApiDoPreload = {
   },
   chamarAtencao: () => ipcRenderer.send(CANAL_CHAMAR_ATENCAO),
   input: {
-    executar: (evento) => ipcRenderer.send(CANAL_EXECUTAR_INPUT, evento),
-    liberar: () => ipcRenderer.send(CANAL_LIBERAR_INPUT),
+    executar: (evento) => portaInput?.postMessage({ tipo: 'executar', evento }),
+    liberar: () => portaInput?.postMessage({ tipo: 'liberar' }),
   },
   sessao: {
     indicar: (parceiro) => ipcRenderer.send(CANAL_INDICAR_SESSAO, parceiro),

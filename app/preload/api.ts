@@ -5,10 +5,11 @@ import type { EventoInput, IdMonitor, Monitor, ProblemaSenha } from '@acesso-rem
 
 /** Canal IPC renderer → main: pede para trazer a janela para frente. */
 export const CANAL_CHAMAR_ATENCAO = 'janela:chamar-atencao';
-/** Canal IPC renderer → main: executa um evento de input vindo do visualizador. */
-export const CANAL_EXECUTAR_INPUT = 'input:executar';
-/** Canal IPC renderer → main: solta botões apertados (fim da sessão). */
-export const CANAL_LIBERAR_INPUT = 'input:liberar';
+/**
+ * main → preload: entrega o MessagePort ligado direto ao processo de input
+ * (mouse e teclado). Os eventos vão por ele sem passar pelo main.
+ */
+export const CANAL_INPUT_PORTA = 'input:porta';
 /** Canal IPC renderer → main: mostra o indicador de sessão (ID do parceiro) ou o esconde (null). */
 export const CANAL_INDICAR_SESSAO = 'sessao:indicar';
 /** Canal IPC main → renderer: pedido para encerrar a sessão (veio do indicador). */
@@ -76,7 +77,7 @@ export interface ApiDoPreload {
   chamarAtencao(): void;
   /** Anfitrião: controle do mouse/teclado deste computador pelo visualizador. */
   readonly input: {
-    /** Executa um evento (o main valida de novo antes). */
+    /** Executa um evento (vai direto ao processo de input, que valida de novo antes). */
     executar(evento: EventoInput): void;
     /** Solta tudo que estiver apertado; chamar ao fim da sessão. */
     liberar(): void;
