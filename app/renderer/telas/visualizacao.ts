@@ -38,6 +38,12 @@ export function montarTelaVisualizacao(opcoes: OpcoesTelaVisualizacao): TelaVisu
       document.body.dataset['tela'] = visivel ? 'remota' : 'inicio';
       controle.definirAtivo(visivel);
       reconectando.hidden = !(visivel && estado.reconectandoAte !== null);
+      // Controlando de fato: o cursor local some sobre a imagem (fica só a seta
+      // do computador acessado, que já vem no vídeo). Sem controle (conferindo a
+      // senha, reconectando), o cursor local volta a aparecer.
+      const controlando =
+        visivel && estado.liberada && estado.reconectandoAte === null && estado.conexao === 'conectado';
+      secao.dataset['controlando'] = String(controlando);
     },
     definirVideo(stream) {
       video.srcObject = stream;

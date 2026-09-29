@@ -674,6 +674,12 @@ body[data-tela='remota'] .abas {
   display: none;
 }
 
+/* Controlando o outro computador: só a seta dele (que vem no vídeo); a local some.
+   Enquanto a imagem não chega, o cursor local continua visível. */
+.tela-remota[data-controlando='true']:not(:has(#aguardando-video:not([hidden]))) video {
+  cursor: none;
+}
+
 .tela-remota video {
   position: absolute;
   inset: 0;

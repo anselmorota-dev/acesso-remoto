@@ -139,6 +139,12 @@ usuário): correção do travamento ao minimizar (processo de input, 0.1.1), com
 (0.1.2) e várias sessões em abas (0.2.0, protocolo v13).
 
 Decisões já tomadas:
+- Cursor (pedido do usuário, 0.2.1): ao controlar, apareciam duas setas sobre a imagem (a local
+  e a do computador acessado, que vem no vídeo porque a captura inclui o cursor). Escolha: só a
+  do computador acessado. `telas/visualizacao.ts` marca `data-controlando` (sessão liberada,
+  conectada, sem reconexão) e o CSS esconde o cursor local sobre o vídeo (`cursor: none`), só
+  depois de a imagem chegar. Custo: a seta visível chega com a latência do vídeo. Alternativa,
+  se incomodar: esconder a do vídeo e mostrar a local (a forma da seta remota não viria).
 - Várias sessões (pedido do usuário, versão 0.2.0, protocolo v13; escolhas: abas na janela,
   até 4, e quem acessa outros não é acessado). Servidor: `Conexao.vinculos` (um vínculo por
   parceiro, `Map`) no lugar de um vínculo só; anfitrião com no máximo um e só recebe pedido
