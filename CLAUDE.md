@@ -111,7 +111,7 @@ Não tenho pressa: prefiro entender cada parte a avançar rápido.
 
 ### Fase 5 — Robustez
 - [x] 5.1 Múltiplos monitores (escolher qual ver)
-- [ ] 5.2 Qualidade adaptativa à conexão
+- [x] 5.2 Qualidade adaptativa à conexão
 - [ ] 5.3 Servidor TURN para redes corporativas
 - [ ] 5.4 Instaladores para Windows e macOS
 
@@ -124,10 +124,46 @@ Não tenho pressa: prefiro entender cada parte a avançar rápido.
 Fase 1 concluída. Fase 2: 2.1 a 2.4 concluídas; 2.5 publicada e testada na mesma máquina,
 falta o teste entre duas redes (o usuário fará depois, com outro notebook). Fase 3 concluída
 (28/09/2026). Fase 4 concluída (28/09/2026; servidor com protocolo v9): sessões longas,
-área de transferência, arquivos e chat. Fase 5: 5.1 concluída (29/09/2026, protocolo v10).
-Próxima: 5.2 (qualidade adaptativa). Pendente do usuário: teste real entre duas redes (2.5).
+área de transferência, arquivos e chat. Fase 5: 5.1 e 5.2 concluídas (29/09/2026; protocolo
+v11). Próxima: 5.3 (servidor TURN). Pendente do usuário: teste real entre duas redes (2.5).
 
 Decisões já tomadas:
+- Qualidade do vídeo (5.2, protocolo v11; escolhas do usuário: automático + modos,
+  automático por equilíbrio, AV1). Medido nesta máquina (i3-7020U, 1366x768, texto
+  rolando; PSNR da imagem recebida contra o quadro original, número do quadro num
+  "código de barras"): VP8 (o padrão do WebRTC) 33,6 dB sem limite → 22,9 dB e 8 fps a
+  250 kbps; VP9 ~40 dB mas limitado pela CPU (10 fps, 40–47 ms/quadro); AV1 39,9 dB sem
+  limite (metade da banda do VP8), 36,9 dB e 28 fps a 500 kbps, texto nítido a 250 kbps
+  (16 fps), 22–28 ms/quadro; H.264 usa a placa (Quick Sync) mas ignora o limite de taxa
+  e dá 23 dB. Reduzir a resolução à mão no modo tela quase não aumenta o fps (e borra o
+  texto): descartado. `contentHint` decide: "detail" mantém a resolução e derruba o fps;
+  "motion" mantém o fps e o WebRTC reduz a resolução sozinho (683x384 a 250 kbps).
+  - Codec: o anfitrião põe AV1 na frente e VP8 de reserva (`setCodecPreferences` com
+    `ordenarCodecs`, `renderer/qualidade.ts`).
+  - Perfis: nitidez = `detail` + `maintain-resolution`; fluidez = `motion` +
+    `maintain-framerate` (`PERFIS`). Aplicado na trilha atual e nas capturas novas
+    (troca de monitor).
+  - Modos (o visualizador escolhe; recomeça em Automático a cada sessão): Automático,
+    Nitidez, Fluidez. Canal: `qualidade {modo}` (visualizador → anfitrião) e
+    `qualidade_estado {modo, efetivo}` (anfitrião → visualizador), só com a sessão
+    liberada e da conexão atual.
+  - Automático (`AjusteAutomatico`, puro e testado): nitidez; passa para fluidez com
+    movimento (≥ 3% da tela mudando por segundo) E fps enviado < 12 por 3 amostras
+    seguidas; volta para nitidez com 3 amostras sem movimento. O movimento é medido pelo
+    anfitrião (`renderer/movimento.ts`: quadro da captura reduzido a 64x36 em cinza,
+    células com diferença > 10): a captura do Windows entrega ~20 quadros/s mesmo com a
+    tela parada, então as estatísticas do `media-source` não servem para isso.
+  - `ControleQualidade` (uma por sessão liberada, mede 1 vez/s; o anfitrião começa quando
+    a tela começa a ir, o visualizador quando a sessão libera). Indicador no painel do
+    visualizador (`telas/qualidade.ts`): "1366×768 · 29 fps · 615 kbps · AV1 ·
+    automático: nitidez" + caixa "Qualidade" (perde o foco ao escolher: o teclado volta
+    para o remoto).
+  - Mensagens de estado (`monitores`, `qualidade`, `qualidade_estado`) esperam o canal
+    abrir (`enviarEstado` no par, a última de cada tipo). Corrige um defeito da 5.1: no
+    aceite comum a tela é capturada antes de a conexão direta abrir, e pela internet a
+    lista de monitores podia se perder.
+  - Não medido: CPU do AV1 em telas grandes (1920x1080 tem ~2x os pixels; com a CPU no
+    limite o WebRTC derruba o fps); conferir no teste com o outro notebook.
 - Múltiplos monitores (5.1, protocolo v10; escolhas do usuário: quem escolhe é o
   visualizador; teste com monitor físico). Canal "controle": `monitores {lista, atual}`
   (anfitrião → visualizador; lista da esquerda para a direita, `{id, largura, altura,
@@ -369,7 +405,8 @@ Decisões já tomadas:
   usuário fará depois; quando passar, marcar a 2.5.
 - Captura (1.5): o renderer chama `getDisplayMedia`; o main (`main/captura.ts`) autoriza só
   pedidos do quadro principal das nossas janelas e entrega o monitor escolhido (5.1). Até 30 fps,
-  `contentHint = 'detail'` (prioriza nitidez). A trilha é adicionada antes da oferta.
+  `contentHint = 'detail'` (perfil nitidez; a 5.2 troca para "motion" na fluidez). O vídeo
+  vai reservado na oferta (transceptor) e a trilha entra com `replaceTrack`.
 - Ao encerrar a sessão (qualquer motivo) as trilhas da captura recebem `stop()`; se a sessão
   acabar enquanto a captura ainda está sendo obtida, ela é parada assim que chega.
 - `encerrar` aceita `motivo` (`captura_indisponivel` | `falha_conexao`), repassado ao parceiro.
@@ -398,6 +435,14 @@ Notas para as próximas etapas:
   medir disputa (leituras duram microssegundos); medir por falhas de cópia de outro programa.
 - Mouse ainda não testado com escala do Windows ≠ 100% nem no macOS (esta máquina: 1366x768,
   100%; monitor HDMI de teste 1280x720, 100%). Escalas diferentes por monitor: conferir.
+- Teste E2E de qualidade (5.2): o anfitrião cobre a tela (`SetWindowPos` com
+  HWND_TOPMOST, 0,0,1366,768) e o visualizador fica minimizado (senão a janela dele,
+  mostrando a tela, cria um "espelho" que nunca para); movimento = canvas com texto
+  rolando na página do anfitrião (esconder a rolagem da página: a barra cobre 17 px do
+  canvas); banda fraca = `maxBitrate` no `RTCRtpSender` (capturar as RTCPeerConnection com
+  `Page.enable` + `Page.addScriptToEvaluateOnNewDocument` + `Page.reload`; sem o
+  `Page.enable` o script não roda). Scripts que usam `process.exit` pulam o `finally`:
+  fechar os electron.exe do projeto depois.
 - Teste E2E com dois monitores: o monitor HDMI desta máquina fica em modo Duplicar (o
   sistema vê um monitor só); `DisplaySwitch.exe /extend` estende (fica à direita, x=1366)
   e `/clone` devolve o modo do usuário (ao fim do teste); `/internal` simula desligar o

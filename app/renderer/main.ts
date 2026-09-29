@@ -13,6 +13,7 @@ import { montarTelaArquivos } from './telas/arquivos';
 import { montarTelaChat } from './telas/chat';
 import { montarTelaInicio } from './telas/inicio';
 import { montarTelaMonitores } from './telas/monitores';
+import { montarTelaQualidade } from './telas/qualidade';
 import { montarTelaSessao } from './telas/sessao';
 import { montarTelaVisualizacao } from './telas/visualizacao';
 
@@ -33,6 +34,11 @@ const telaSessao = montarTelaSessao({
 // Visualizador: qual monitor do outro computador ver.
 const telaMonitores = montarTelaMonitores({
   aoEscolher: (id) => controlador.escolherMonitor(id),
+});
+
+// Visualizador: modo de qualidade do vídeo e o que está chegando.
+const telaQualidade = montarTelaQualidade({
+  aoEscolher: (modo) => controlador.escolherQualidade(modo),
 });
 
 const telaVisualizacao = montarTelaVisualizacao({
@@ -79,6 +85,7 @@ function renderizar(): void {
   telaInicio.atualizar(estadoSinalizacao, estadoSessao);
   telaSessao.atualizar(estadoSessao);
   telaMonitores.atualizar(estadoSessao);
+  telaQualidade.atualizar(estadoSessao);
   telaAcesso.atualizar(estadoSessao);
   // Ícone da bandeja: ID e quem está controlando (o main ignora se nada mudou).
   window.api.bandeja.atualizar({

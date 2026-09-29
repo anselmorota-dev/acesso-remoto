@@ -21,6 +21,7 @@ import type {
   IdCliente,
   IdMonitor,
   MensagemDoCliente,
+  ModoQualidade,
   Monitor,
   MotivoEncerramento,
   MotivoFalha,
@@ -31,6 +32,7 @@ import type {
 import type { CanalArquivos } from './arquivos';
 import { ErroCaptura } from './captura';
 import type { EstadoPar, OpcoesPar, Par } from './par';
+import { ControleQualidade, type EstadoQualidade } from './qualidade';
 import type { MensagemRecebida } from './sinalizacao';
 
 export type EstadoSessao =
@@ -71,6 +73,8 @@ export type EstadoSessao =
        * começar). O visualizador recebe pelo canal; o anfitrião guarda o que enviou.
        */
       monitores: MonitoresSessao | null;
+      /** Qualidade do vídeo (modo, perfil em uso e, no visualizador, o que chega); null antes de a sessão liberar. */
+      qualidade: EstadoQualidade | null;
     };
 
 export interface MonitoresSessao {
@@ -132,6 +136,8 @@ export interface OpcoesControlador {
   intervaloReinicioIceMs?: number;
   /** Canal direto fechado sem aviso: espera um pouco pelo motivo (vindo do servidor). */
   esperaCanalPerdidoMs?: number;
+  /** De quanto em quanto tempo a qualidade do vídeo é medida (padrão 1 s). */
+  intervaloQualidadeMs?: number;
 }
 
 const PRAZO_SENHA_PADRAO_MS = 15_000;
@@ -197,6 +203,8 @@ export class ControladorSessao {
   private monitorMostrado: IdMonitor | null = null;
   /** Anfitrião: numera os anúncios de monitores; um anúncio atrasado não vale. */
   private anuncioMonitores = 0;
+  /** Qualidade do vídeo da sessão liberada (nos dois papéis). */
+  private qualidade: ControleQualidade | null = null;
 
   constructor(opcoes: OpcoesControlador) {
     this.opcoes = opcoes;
@@ -268,6 +276,13 @@ export class ControladorSessao {
     if (!estado.monitores || estado.monitores.atual === id) return;
     if (!estado.monitores.lista.some((m) => m.id === id)) return;
     this.par?.escolherMonitor(id);
+  }
+
+  /** Visualizador: escolhe o modo de qualidade (o anfitrião aplica e confirma). */
+  escolherQualidade(modo: ModoQualidade): void {
+    const estado = this.estadoAtual;
+    if (estado.fase !== 'em_sessao' || estado.papel !== 'visualizador' || !estado.liberada) return;
+    this.qualidade?.escolher(modo);
   }
 
   /**
@@ -448,6 +463,7 @@ export class ControladorSessao {
       liberada: !porSenha,
       reconectandoAte: null,
       monitores: null,
+      qualidade: null,
     });
 
     const par = this.opcoes.criarPar({
@@ -494,6 +510,16 @@ export class ControladorSessao {
       aoEscolherMonitor: (id) => {
         if (this.par === par) void this.trocarMonitor(par, id);
       },
+      // Qualidade: só da conexão atual e com a sessão liberada (quem mede e aplica é o ControleQualidade).
+      aoPedirQualidade: (modo) => {
+        if (this.par === par && this.anfitriaoLiberado()) this.qualidade?.pedirModo(modo);
+      },
+      aoReceberEstadoQualidade: (modo, efetivo) => {
+        const estado = this.estadoAtual;
+        if (this.par === par && estado.fase === 'em_sessao' && estado.papel === 'visualizador' && estado.liberada) {
+          this.qualidade?.receberEstado(modo, efetivo);
+        }
+      },
       aoMudarCanalArquivos: (canal) => {
         if (this.par !== par) return;
         this.canalArquivos = canal;
@@ -512,6 +538,7 @@ export class ControladorSessao {
         const estado = this.estadoAtual;
         if (this.par === par && estado.fase === 'em_sessao' && estado.papel === 'visualizador' && estado.porSenha) {
           this.atualizarSessao({ liberada: true });
+          this.iniciarQualidade(par, 'visualizador');
         }
       },
       aoEncerrarPeloParceiro: (motivo) => {
@@ -551,7 +578,29 @@ export class ControladorSessao {
     } else if (porSenha) {
       // Visualizador: manda a senha (o par espera o canal direto abrir).
       par.enviarSenha(senha ?? '');
+    } else {
+      // Visualizador, aceite comum: já liberada.
+      this.iniciarQualidade(par, 'visualizador');
     }
+  }
+
+  /**
+   * Começa a cuidar da qualidade do vídeo (sessão liberada; no anfitrião,
+   * depois de a tela começar a ir).
+   */
+  private iniciarQualidade(par: Par, papel: Papel): void {
+    if (this.par !== par || this.qualidade) return;
+    const controle: ControleQualidade = new ControleQualidade({
+      papel,
+      par,
+      intervaloMs: this.opcoes.intervaloQualidadeMs,
+      aoMudar: (qualidade) => {
+        if (this.qualidade === controle) this.atualizarSessao({ qualidade });
+      },
+    });
+    this.qualidade = controle;
+    this.atualizarSessao({ qualidade: controle.estado });
+    controle.iniciar();
   }
 
   /** Mudança no estado da conexão direta (a do par atual). */
@@ -655,11 +704,16 @@ export class ControladorSessao {
     return estado.fase === 'em_sessao' && estado.papel === 'anfitriao' && estado.liberada;
   }
 
-  /** Anfitrião: começa a enviar a tela (monitor principal) e conta ao visualizador quais monitores há. */
+  /**
+   * Anfitrião: começa a enviar a tela (monitor principal), passa a cuidar da
+   * qualidade e conta ao visualizador quais monitores há.
+   */
   private liberarTela(par: Par): void {
     par.liberarTela().then(
       (monitor) => {
-        if (this.par !== par || monitor === null) return;
+        if (this.par !== par) return;
+        this.iniciarQualidade(par, 'anfitriao');
+        if (monitor === null) return;
         this.monitorMostrado = monitor;
         void this.anunciarMonitores(par, false);
       },
@@ -736,6 +790,7 @@ export class ControladorSessao {
     liberada?: boolean;
     reconectandoAte?: number | null;
     monitores?: MonitoresSessao;
+    qualidade?: EstadoQualidade;
   }): void {
     if (this.estadoAtual.fase === 'em_sessao') this.mudar({ ...this.estadoAtual, ...mudancas });
   }
@@ -748,6 +803,8 @@ export class ControladorSessao {
     this.conferindoSenha = false;
     this.jaConectou = false;
     this.monitorMostrado = null;
+    this.qualidade?.parar();
+    this.qualidade = null;
     this.ligadoNoServidor = false;
     this.canalArquivos = null;
     const par = this.par;

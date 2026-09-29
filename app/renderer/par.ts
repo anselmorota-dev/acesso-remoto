@@ -23,14 +23,18 @@ import {
   type EventoInput,
   type IdMonitor,
   type MensagemCanal,
+  type ModoQualidade,
   type Monitor,
   type MotivoFimPeloCanal,
   type Papel,
+  type PerfilVideo,
   type Sinal,
 } from '@acesso-remoto/shared';
 import { serializarAreaTransferencia } from './area-transferencia';
 import type { CanalArquivos } from './arquivos';
 import { capturarTela } from './captura';
+import { AmostradorMovimento } from './movimento';
+import { PERFIS, ordenarCodecs, type AmostraVideo, type ParQualidade } from './qualidade';
 
 export type EstadoPar = 'conectando' | 'conectado' | 'falhou' | 'fechado';
 
@@ -64,10 +68,17 @@ export interface OpcoesPar {
   aoReceberMonitores?: (lista: Monitor[], atual: IdMonitor) => void;
   /** Anfitrião: o visualizador pediu para ver outro monitor. */
   aoEscolherMonitor?: (id: IdMonitor) => void;
+  /** Anfitrião: o visualizador escolheu um modo de qualidade. */
+  aoPedirQualidade?: (modo: ModoQualidade) => void;
+  /** Visualizador: o anfitrião informou o modo de qualidade e o perfil em uso. */
+  aoReceberEstadoQualidade?: (modo: ModoQualidade, efetivo: PerfilVideo) => void;
 }
 
-/** O que o controlador de sessão precisa de uma conexão (permite trocar por um falso nos testes). */
-export interface Par {
+/**
+ * O que o controlador de sessão precisa de uma conexão (permite trocar por um
+ * falso nos testes). A parte da qualidade do vídeo está em ParQualidade.
+ */
+export interface Par extends ParQualidade {
   iniciar(): Promise<void>;
   receberSinal(sinal: Sinal): Promise<void>;
   /**
@@ -146,6 +157,15 @@ export class ConexaoPar implements Par {
   private senhaPendente: string | null = null;
   /** Texto copiado esperando o canal abrir (só o último importa). */
   private areaPendente: string | null = null;
+  /**
+   * Mensagens de "estado" (monitores, qualidade) esperando o canal abrir: só
+   * a última de cada tipo importa. No aceite comum a tela é capturada antes
+   * de a conexão direta abrir; sem isto, esses avisos se perdiam.
+   */
+  private readonly estadosPendentes = new Map<MensagemCanal['tipo'], MensagemCanal>();
+  /** Anfitrião: perfil do vídeo (vale também para as próximas capturas). */
+  private perfil: PerfilVideo = 'nitidez';
+  private readonly amostrador = new AmostradorMovimento();
 
   constructor(opcoes: OpcoesPar) {
     this.opcoes = opcoes;
@@ -207,7 +227,15 @@ export class ConexaoPar implements Par {
    */
   async iniciar(): Promise<void> {
     if (this.opcoes.papel !== 'anfitriao') return;
-    this.enviadorVideo = this.pc.addTransceiver('video', { direction: 'sendonly' }).sender;
+    const transceptor = this.pc.addTransceiver('video', { direction: 'sendonly' });
+    this.enviadorVideo = transceptor.sender;
+    // AV1 em primeiro lugar (texto nítido com pouca banda; ver qualidade.ts).
+    // Sem AV1 disponível, a ordem só põe o VP8 na frente.
+    try {
+      transceptor.setCodecPreferences(ordenarCodecs(RTCRtpSender.getCapabilities('video')?.codecs ?? []));
+    } catch (erro) {
+      console.warn('[par] preferência de codec não aplicada:', erro);
+    }
     await this.pc.setLocalDescription(await this.pc.createOffer());
     this.enviarDescricaoLocal();
   }
@@ -224,11 +252,66 @@ export class ConexaoPar implements Par {
   }
 
   enviarMonitores(lista: Monitor[], atual: IdMonitor): void {
-    this.enviarNoCanal({ tipo: 'monitores', lista, atual });
+    this.enviarEstado({ tipo: 'monitores', lista, atual });
   }
 
   escolherMonitor(id: IdMonitor): void {
     this.enviarNoCanal({ tipo: 'escolher_monitor', id });
+  }
+
+  enviarQualidade(modo: ModoQualidade): void {
+    this.enviarEstado({ tipo: 'qualidade', modo });
+  }
+
+  enviarEstadoQualidade(modo: ModoQualidade, efetivo: PerfilVideo): void {
+    this.enviarEstado({ tipo: 'qualidade_estado', modo, efetivo });
+  }
+
+  /** Anfitrião: aplica o perfil ao vídeo atual; as próximas capturas já nascem com ele. */
+  definirPerfil(perfil: PerfilVideo): void {
+    if (this.opcoes.papel !== 'anfitriao') return;
+    this.perfil = perfil;
+    this.aplicarPerfil();
+  }
+
+  private aplicarPerfil(): void {
+    const { contentHint, degradationPreference } = PERFIS[this.perfil];
+    for (const trilha of this.telaLocal?.getVideoTracks() ?? []) trilha.contentHint = contentHint;
+    const enviador = this.enviadorVideo;
+    if (!enviador || this.fechado()) return;
+    const parametros = enviador.getParameters();
+    if (parametros.degradationPreference === degradationPreference) return;
+    parametros.degradationPreference = degradationPreference;
+    enviador.setParameters(parametros).catch((erro: unknown) => console.warn('[par] perfil não aplicado:', erro));
+  }
+
+  /** Estatísticas do vídeo: o que sai (anfitrião) ou o que chega (visualizador). */
+  async estatisticasVideo(): Promise<AmostraVideo | null> {
+    if (this.fechado()) return null;
+    const relatorio = await this.pc.getStats();
+    const tipo = this.opcoes.papel === 'anfitriao' ? 'outbound-rtp' : 'inbound-rtp';
+    let video: Record<string, unknown> | null = null;
+    const codecs = new Map<string, string>();
+    relatorio.forEach((item: Record<string, unknown>) => {
+      if (item['type'] === tipo && item['kind'] === 'video') video = item;
+      if (item['type'] === 'codec' && typeof item['mimeType'] === 'string') codecs.set(String(item['id']), item['mimeType']);
+    });
+    if (!video) return null;
+    const v: Record<string, unknown> = video;
+    const numero = (chave: string) => (typeof v[chave] === 'number' ? (v[chave] as number) : null);
+    return {
+      t: numero('timestamp') ?? performance.now(),
+      bytes: numero(tipo === 'outbound-rtp' ? 'bytesSent' : 'bytesReceived') ?? 0,
+      largura: numero('frameWidth'),
+      altura: numero('frameHeight'),
+      fps: numero('framesPerSecond'),
+      codec: codecs.get(String(v['codecId'])) ?? null,
+    };
+  }
+
+  async medirMovimento(): Promise<number | null> {
+    if (this.opcoes.papel !== 'anfitriao' || this.fechado()) return null;
+    return this.amostrador.medir(this.telaLocal?.getVideoTracks()[0] ?? null);
   }
 
   /** Enfileira uma captura (ver filaCaptura). */
@@ -249,6 +332,7 @@ export class ConexaoPar implements Par {
     }
     const anterior = this.telaLocal;
     this.telaLocal = tela;
+    this.aplicarPerfil(); // a captura nova segue o perfil atual (ex.: fluidez)
     await this.enviadorVideo.replaceTrack(tela.getVideoTracks()[0] ?? null);
     // Só agora a captura anterior pode parar: a imagem não fica preta na troca.
     if (anterior) pararCaptura(anterior);
@@ -332,6 +416,8 @@ export class ConexaoPar implements Par {
   fechar(aviso?: { motivo?: MotivoFimPeloCanal }): void {
     if (this.estado === 'fechado') return;
     clearInterval(this.timerPing);
+    this.amostrador.soltar();
+    this.estadosPendentes.clear();
     // Parar as trilhas é o que desliga a captura da tela de fato (na hora,
     // mesmo que a conexão ainda espere o aviso de fim sair).
     if (this.telaLocal) pararCaptura(this.telaLocal);
@@ -457,6 +543,9 @@ export class ConexaoPar implements Par {
         canal.send(this.areaPendente);
         this.areaPendente = null;
       }
+      // Avisos de estado (monitores, qualidade) feitos antes de o canal abrir.
+      for (const mensagem of this.estadosPendentes.values()) this.enviarNoCanal(mensagem);
+      this.estadosPendentes.clear();
     });
     canal.addEventListener('close', () => {
       clearInterval(this.timerPing);
@@ -469,6 +558,12 @@ export class ConexaoPar implements Par {
 
   private enviarNoCanal(mensagem: MensagemCanal): void {
     if (this.canal?.readyState === 'open') this.canal.send(JSON.stringify(mensagem));
+  }
+
+  /** Mensagem de estado: com o canal ainda fechado, guarda a última de cada tipo e envia ao abrir. */
+  private enviarEstado(mensagem: MensagemCanal): void {
+    if (this.canal?.readyState === 'open') this.enviarNoCanal(mensagem);
+    else if (!this.fechado()) this.estadosPendentes.set(mensagem.tipo, mensagem);
   }
 
   private aoMensagemCanal(dados: unknown): void {
@@ -508,6 +603,12 @@ export class ConexaoPar implements Par {
         break;
       case 'escolher_monitor':
         if (this.opcoes.papel === 'anfitriao') this.opcoes.aoEscolherMonitor?.(mensagem.id);
+        break;
+      case 'qualidade':
+        if (this.opcoes.papel === 'anfitriao') this.opcoes.aoPedirQualidade?.(mensagem.modo);
+        break;
+      case 'qualidade_estado':
+        if (this.opcoes.papel === 'visualizador') this.opcoes.aoReceberEstadoQualidade?.(mensagem.modo, mensagem.efetivo);
         break;
       default:
         // Todo o resto é evento de input (mouse e teclado); o TypeScript

@@ -27,6 +27,7 @@ export async function capturarTela(monitor: IdMonitor | null): Promise<Captura> 
   }
   // "detail": quando a rede aperta, o WebRTC reduz o fps em vez da
   // resolução — em acesso remoto, texto legível importa mais que fluidez.
+  // (É o perfil "nitidez"; o par troca para "fluidez" se for o caso, 5.2.)
   for (const trilha of tela.getVideoTracks()) trilha.contentHint = 'detail';
   return { tela, monitor: entregue };
 }

@@ -232,6 +232,32 @@ button.pequeno {
   color: var(--destaque-texto);
 }
 
+/* Qualidade (visualizador) ----------------------------------------------- */
+
+.qualidade {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.qualidade[hidden] {
+  display: none;
+}
+
+.qualidade select {
+  padding: 4px 6px;
+  border: 1px solid var(--borda);
+  border-radius: 6px;
+  background: var(--cartao);
+  color: var(--texto);
+  font: inherit;
+  font-size: 0.85rem;
+}
+
+.info-video {
+  font-variant-numeric: tabular-nums;
+}
+
 /* Arquivos --------------------------------------------------------------- */
 
 .painel-arquivos {

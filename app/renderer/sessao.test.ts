@@ -7,7 +7,7 @@ import { afterEach, beforeEach, test } from 'node:test';
 import { novaIdentidade } from '@acesso-remoto/server/auxiliares-teste';
 import { InstalacoesEmMemoria } from '@acesso-remoto/server/instalacoes';
 import { iniciarServidor, type ServidorSinalizacao } from '@acesso-remoto/server/servidor';
-import type { EventoInput, IdMonitor, Monitor, Sinal } from '@acesso-remoto/shared';
+import type { EventoInput, IdMonitor, ModoQualidade, Monitor, PerfilVideo, Sinal } from '@acesso-remoto/shared';
 import { ErroCaptura } from './captura';
 import type { CanalArquivos } from './arquivos';
 import type { OpcoesPar, Par } from './par';
@@ -40,7 +40,26 @@ class ParFalso implements Par {
   readonly monitoresEscolhidos: IdMonitor[] = [];
   readonly trocasMonitor: Array<IdMonitor | null> = [];
   falharTrocaMonitor = false;
+  /** Qualidade: perfis aplicados, modos pedidos (visualizador) e estados anunciados (anfitrião). */
+  readonly perfis: PerfilVideo[] = [];
+  readonly qualidadePedida: ModoQualidade[] = [];
+  readonly estadosQualidade: Array<[ModoQualidade, PerfilVideo]> = [];
   constructor(readonly opcoes: OpcoesPar) {}
+  definirPerfil(perfil: PerfilVideo) {
+    this.perfis.push(perfil);
+  }
+  async estatisticasVideo() {
+    return null;
+  }
+  async medirMovimento() {
+    return null;
+  }
+  enviarQualidade(modo: ModoQualidade) {
+    this.qualidadePedida.push(modo);
+  }
+  enviarEstadoQualidade(modo: ModoQualidade, efetivo: PerfilVideo) {
+    this.estadosQualidade.push([modo, efetivo]);
+  }
   async trocarMonitor(id: IdMonitor | null) {
     if (this.falharTrocaMonitor) throw new ErroCaptura('monitor sumiu');
     this.trocasMonitor.push(id);
@@ -909,4 +928,60 @@ test('monitores: nada antes de a senha conferir nem de conexão antiga', async (
   visualizador.controlador.encerrar();
   parV.opcoes.aoReceberMonitores?.([ESQUERDA, PRINCIPAL], PRINCIPAL.id);
   assert.equal(monitoresDe(visualizador), null);
+});
+
+const qualidadeDe = (app: App) => {
+  const estado = app.controlador.estado;
+  return estado.fase === 'em_sessao' ? estado.qualidade : null;
+};
+
+test('qualidade: o anfitrião anuncia o automático quando a tela começa e aplica o modo pedido', async () => {
+  const { visualizador, anfitriao } = await emSessao();
+  const [parV] = visualizador.pares;
+  const [parA] = anfitriao.pares;
+  assert.ok(parV && parA);
+  await aguardar(() => parA.estadosQualidade.length === 1);
+  assert.deepEqual(parA.estadosQualidade, [['automatico', 'nitidez']]);
+  assert.deepEqual(parA.perfis, ['nitidez']);
+
+  // Visualizador escolhe fluidez; o pedido vai pelo canal.
+  assert.equal(qualidadeDe(visualizador)?.modo, 'automatico');
+  visualizador.controlador.escolherQualidade('fluidez');
+  assert.deepEqual(parV.qualidadePedida, ['fluidez']);
+
+  // Chegando ao anfitrião: aplica e confirma.
+  parA.opcoes.aoPedirQualidade?.('fluidez');
+  assert.deepEqual(parA.estadosQualidade.at(-1), ['fluidez', 'fluidez']);
+  assert.equal(parA.perfis.at(-1), 'fluidez');
+  assert.equal(qualidadeDe(anfitriao)?.efetivo, 'fluidez');
+
+  // A confirmação chega ao visualizador e aparece no estado (para o painel).
+  parV.opcoes.aoReceberEstadoQualidade?.('fluidez', 'fluidez');
+  assert.deepEqual(
+    { modo: qualidadeDe(visualizador)?.modo, efetivo: qualidadeDe(visualizador)?.efetivo },
+    { modo: 'fluidez', efetivo: 'fluidez' },
+  );
+});
+
+test('qualidade: nada antes de a senha conferir nem de conexão antiga', async () => {
+  const { visualizador, anfitriao, parV, parA } = await sessaoComSenha({ senhaDefinida: true, senhaCerta: SENHA });
+  visualizador.controlador.escolherQualidade('fluidez');
+  parA.opcoes.aoPedirQualidade?.('fluidez');
+  parV.opcoes.aoReceberEstadoQualidade?.('fluidez', 'fluidez');
+  assert.deepEqual(parV.qualidadePedida, []);
+  assert.deepEqual(parA.perfis, []);
+  assert.equal(qualidadeDe(visualizador), null);
+  assert.equal(qualidadeDe(anfitriao), null);
+
+  // Senha certa: o anfitrião começa a cuidar da qualidade; o visualizador, ao ser avisado.
+  parA.opcoes.aoReceberSenha?.(SENHA);
+  await aguardar(() => parA.estadosQualidade.length === 1);
+  parV.opcoes.aoAutenticado?.();
+  visualizador.controlador.escolherQualidade('nitidez');
+  assert.deepEqual(parV.qualidadePedida, ['nitidez']);
+
+  // Encerrada: pedido atrasado da conexão antiga não vale.
+  anfitriao.controlador.encerrar();
+  parA.opcoes.aoPedirQualidade?.('fluidez');
+  assert.deepEqual(parA.perfis, ['nitidez']);
 });

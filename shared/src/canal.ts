@@ -121,6 +121,23 @@ export const esquemaMonitor = z.object({
 export type Monitor = z.infer<typeof esquemaMonitor>;
 
 // ---------------------------------------------------------------------------
+// Qualidade do vídeo (etapa 5.2)
+// ---------------------------------------------------------------------------
+
+/**
+ * O que o visualizador escolhe: "nitidez" (resolução cheia; em movimento
+ * pesado com pouca banda, o fps cai), "fluidez" (fps alto; a resolução cai)
+ * ou "automatico" (nitidez, trocando para fluidez enquanto a tela está em
+ * movimento e a conexão não acompanha).
+ */
+export const esquemaModoQualidade = z.enum(['automatico', 'nitidez', 'fluidez']);
+export type ModoQualidade = z.infer<typeof esquemaModoQualidade>;
+
+/** Como o vídeo está sendo codificado de fato (no automático, muda sozinho). */
+export const esquemaPerfilVideo = z.enum(['nitidez', 'fluidez']);
+export type PerfilVideo = z.infer<typeof esquemaPerfilVideo>;
+
+// ---------------------------------------------------------------------------
 // Todas as mensagens do canal
 // ---------------------------------------------------------------------------
 
@@ -167,6 +184,13 @@ export const esquemaMensagemCanal = z.discriminatedUnion('tipo', [
   }),
   /** Visualizador → anfitrião, com a sessão liberada: mostrar outro monitor. */
   z.object({ tipo: z.literal('escolher_monitor'), id: esquemaIdMonitor }),
+  /** Visualizador → anfitrião, com a sessão liberada: o modo de qualidade escolhido. */
+  z.object({ tipo: z.literal('qualidade'), modo: esquemaModoQualidade }),
+  /**
+   * Anfitrião → visualizador, com a sessão liberada: o modo em uso e o perfil
+   * de fato (no automático, "nitidez" ou "fluidez" conforme o movimento).
+   */
+  z.object({ tipo: z.literal('qualidade_estado'), modo: esquemaModoQualidade, efetivo: esquemaPerfilVideo }),
   ...esquemasInput,
 ]);
 export type MensagemCanal = z.infer<typeof esquemaMensagemCanal>;

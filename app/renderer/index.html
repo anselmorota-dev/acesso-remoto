@@ -18,7 +18,18 @@
         <p id="texto-sessao"></p>
         <!-- Aviso passageiro durante a sessão (ex.: texto copiado grande demais). -->
         <p id="nota-sessao" class="nota" hidden></p>
+        <!-- Visualizador: o que está chegando (resolução, fps, taxa, codec). -->
+        <p id="info-video" class="nota info-video" hidden></p>
       </div>
+      <!-- Visualizador: modo de qualidade do vídeo. -->
+      <label id="qualidade-sessao" class="qualidade" hidden>
+        <span class="rotulo-monitores">Qualidade</span>
+        <select id="modo-qualidade">
+          <option value="automatico">Automático</option>
+          <option value="nitidez">Nitidez</option>
+          <option value="fluidez">Fluidez</option>
+        </select>
+      </label>
       <!-- Visualizador: qual monitor do outro computador ver (só com mais de um). -->
       <div id="monitores-sessao" class="monitores" role="group" aria-labelledby="rotulo-monitores" hidden>
         <span id="rotulo-monitores" class="rotulo-monitores">Monitor</span>
