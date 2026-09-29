@@ -1,6 +1,6 @@
 {
   "name": "@acesso-remoto/app",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "private": true,
   "description": "App desktop (Electron) de acesso remoto",
   "author": "Anselmo Rota",

@@ -273,10 +273,6 @@ button.pequeno {
   background: var(--alerta);
 }
 
-/* Na tela remota as abas ficam mais juntas do vídeo. */
-body[data-tela='remota'] .abas {
-  margin-top: 8px;
-}
 
 /* Monitores (visualizador) ----------------------------------------------- */
 
@@ -727,6 +723,87 @@ body[data-tela='remota'] .rodape {
   display: none;
 }
 
+/* Faixa do topo na tela remota: abas e painel numa linha só, compacta, na
+   largura toda (a imagem remota fica com o resto da janela). */
+.barra-sessao {
+  display: contents;
+}
+
+body[data-tela='remota'] .barra-sessao {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--borda);
+  background: var(--cartao);
+}
+
+body[data-tela='remota'] .abas {
+  flex: 0 1 auto;
+  width: auto;
+  max-width: 55%;
+  margin: 0;
+  overflow-x: auto;
+}
+
+body[data-tela='remota'] .lista-abas {
+  flex-wrap: nowrap;
+  gap: 4px;
+}
+
+body[data-tela='remota'] .aba,
+body[data-tela='remota'] .fechar-aba {
+  padding: 3px 9px;
+  font-size: 0.82rem;
+  white-space: nowrap;
+}
+
 body[data-tela='remota'] .painel {
-  margin-top: 8px;
+  flex: 1;
+  min-width: 0;
+  width: auto;
+  max-width: none;
+  margin: 0;
+  padding: 2px 0 2px 8px;
+  gap: 6px;
+  border: none;
+  border-left: 3px solid var(--texto-suave);
+  border-radius: 0;
+  background: transparent;
+}
+
+body[data-tela='remota'] .painel-texto {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  font-size: 0.85rem;
+}
+
+body[data-tela='remota'] .painel-texto p {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+body[data-tela='remota'] .painel-texto .nota {
+  font-size: 0.78rem;
+}
+
+/* Rótulos saem (a explicação fica na dica); botões e seletor menores. */
+body[data-tela='remota'] .painel .rotulo-monitores {
+  display: none;
+}
+
+body[data-tela='remota'] .painel button,
+body[data-tela='remota'] .qualidade select {
+  padding: 3px 10px;
+  font-size: 0.82rem;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+body[data-tela='remota'] .tela-remota {
+  margin-top: 0;
 }

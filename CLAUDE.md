@@ -139,6 +139,12 @@ usuário): correção do travamento ao minimizar (processo de input, 0.1.1), com
 (0.1.2) e várias sessões em abas (0.2.0, protocolo v13).
 
 Decisões já tomadas:
+- Faixa do topo compacta (pedido do usuário, 0.2.2): na tela remota, abas e painel ocupavam
+  ~150 px. Agora `#barra-sessao` junta os dois; na tela inicial é `display: contents` (nada
+  muda), na remota vira uma linha só na largura toda (~40 px): abas à esquerda, situação
+  compacta ("Conectado (direto) · 18 ms"; a frase inteira fica na dica, porque a aba já diz
+  com quem é) e linha de qualidade menores, rótulos "Qualidade"/"Monitor" escondidos (dica no
+  seletor), botões menores.
 - Cursor (pedido do usuário, 0.2.1): ao controlar, apareciam duas setas sobre a imagem (a local
   e a do computador acessado, que vem no vídeo porque a captura inclui o cursor). Escolha: só a
   do computador acessado. `telas/visualizacao.ts` marca `data-controlando` (sessão liberada,

@@ -69,17 +69,23 @@ export function montarTelaSessao(opcoes: OpcoesTelaSessao): TelaSessao {
     if (estado.fase !== 'em_sessao' || !estado.liberada) return;
     const quem = estado.papel === 'anfitriao' ? 'acessado por' : 'acessando';
     const inicio = `Sessão ativa: ${quem} ${formatarId(estado.parceiro)}`;
+    // Visualizador (tela remota, faixa compacta): a aba já diz com quem é a
+    // sessão; o painel mostra só a situação. A frase inteira fica na dica.
+    const compacto = estado.papel === 'visualizador';
+    let situacao: string;
     if (estado.reconectandoAte !== null) {
       // Só informativo: quem encerra quando o prazo acaba é o controlador.
       const restante = formatarDuracao(estado.reconectandoAte - Date.now());
-      texto.textContent = `${inicio} — conexão perdida, reconectando… (se não voltar, a sessão encerra em ${restante})`;
+      situacao = `conexão perdida, reconectando… (se não voltar, a sessão encerra em ${restante})`;
       painel.dataset['conexao'] = 'reconectando';
-      return;
+    } else {
+      const latencia = estado.latenciaMs === null ? '' : ` · ${compacto ? '' : 'latência '}${estado.latenciaMs} ms`;
+      const rota = estado.conexao === 'conectado' && estado.rota ? TEXTO_ROTA[estado.rota] : '';
+      situacao = `${TEXTO_CONEXAO[estado.conexao]}${rota}${latencia}`;
+      painel.dataset['conexao'] = estado.conexao;
     }
-    const latencia = estado.latenciaMs === null ? '' : ` · latência ${estado.latenciaMs} ms`;
-    const rota = estado.conexao === 'conectado' && estado.rota ? TEXTO_ROTA[estado.rota] : '';
-    texto.textContent = `${inicio} — ${TEXTO_CONEXAO[estado.conexao]}${rota}${latencia}`;
-    painel.dataset['conexao'] = estado.conexao;
+    texto.textContent = compacto ? situacao.charAt(0).toUpperCase() + situacao.slice(1) : `${inicio} — ${situacao}`;
+    texto.title = `${inicio} — ${situacao}`;
   }
 
   botao.addEventListener('click', () => {

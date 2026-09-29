@@ -12,6 +12,9 @@
     <link rel="stylesheet" href="./style.css" />
   </head>
   <body>
+    <!-- Faixa do topo: abas + painel. Na tela inicial não muda nada (display: contents);
+         na tela remota vira uma linha só, compacta. -->
+    <header id="barra-sessao" class="barra-sessao">
     <!-- Abas (várias sessões): Início + um computador acessado por aba. -->
     <nav id="abas" class="abas" aria-label="Computadores acessados" hidden>
       <div id="lista-abas" class="lista-abas" role="tablist"></div>
@@ -27,7 +30,7 @@
         <p id="info-video" class="nota info-video" hidden></p>
       </div>
       <!-- Visualizador: modo de qualidade do vídeo. -->
-      <label id="qualidade-sessao" class="qualidade" hidden>
+      <label id="qualidade-sessao" class="qualidade" title="Qualidade da imagem: Automático, Nitidez (resolução cheia) ou Fluidez (mais quadros por segundo)" hidden>
         <span class="rotulo-monitores">Qualidade</span>
         <select id="modo-qualidade">
           <option value="automatico">Automático</option>
@@ -44,6 +47,7 @@
       <button id="botao-enviar-arquivos" type="button" class="secundario" hidden>Enviar arquivos</button>
       <button id="botao-sessao" type="button" class="secundario"></button>
     </section>
+    </header>
 
     <!-- Arquivos enviados e recebidos na sessão (os recebidos vão para Downloads\Acesso Remoto). -->
     <section id="painel-arquivos" class="painel-arquivos" aria-label="Transferência de arquivos" hidden>
