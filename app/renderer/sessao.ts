@@ -28,10 +28,11 @@ import type {
   MotivoFimPeloCanal,
   MotivoRecusa,
   Papel,
+  ServidorIce,
 } from '@acesso-remoto/shared';
 import type { CanalArquivos } from './arquivos';
 import { ErroCaptura } from './captura';
-import type { EstadoPar, OpcoesPar, Par } from './par';
+import type { EstadoPar, OpcoesPar, Par, RotaConexao } from './par';
 import { ControleQualidade, type EstadoQualidade } from './qualidade';
 import type { MensagemRecebida } from './sinalizacao';
 
@@ -75,6 +76,8 @@ export type EstadoSessao =
       monitores: MonitoresSessao | null;
       /** Qualidade do vídeo (modo, perfil em uso e, no visualizador, o que chega); null antes de a sessão liberar. */
       qualidade: EstadoQualidade | null;
+      /** Por onde a conexão passa: direto ou pelo servidor TURN (null: ainda não se sabe). */
+      rota: RotaConexao | null;
     };
 
 export interface MonitoresSessao {
@@ -381,7 +384,7 @@ export class ControladorSessao {
         const esperado =
           (estado.fase === 'pedindo' && mensagem.papel === 'visualizador' && estado.destino === mensagem.parceiro) ||
           (estado.fase === 'pedido_recebido' && mensagem.papel === 'anfitriao' && estado.origem === mensagem.parceiro);
-        if (esperado) this.iniciarSessao(mensagem.parceiro, mensagem.papel, mensagem.porSenha);
+        if (esperado) this.iniciarSessao(mensagem.parceiro, mensagem.papel, mensagem.porSenha, mensagem.iceServers);
         return;
       }
 
@@ -448,7 +451,7 @@ export class ControladorSessao {
     }
   }
 
-  private iniciarSessao(parceiro: IdCliente, papel: Papel, porSenha: boolean): void {
+  private iniciarSessao(parceiro: IdCliente, papel: Papel, porSenha: boolean, servidoresIce?: ServidorIce[]): void {
     const senha = this.senhaParaEnviar;
     this.senhaParaEnviar = null;
     this.jaConectou = false;
@@ -464,10 +467,15 @@ export class ControladorSessao {
       reconectandoAte: null,
       monitores: null,
       qualidade: null,
+      rota: null,
     });
 
     const par = this.opcoes.criarPar({
       papel,
+      servidoresIce,
+      aoMudarRota: (rota) => {
+        if (this.par === par) this.atualizarSessao({ rota });
+      },
       enviarSinal: (sinal) => this.opcoes.enviar({ tipo: 'sinal', sinal }),
       aoMudarEstado: (conexao) => {
         if (this.par === par) this.aoMudarConexaoDireta(conexao);
@@ -791,6 +799,7 @@ export class ControladorSessao {
     reconectandoAte?: number | null;
     monitores?: MonitoresSessao;
     qualidade?: EstadoQualidade;
+    rota?: RotaConexao;
   }): void {
     if (this.estadoAtual.fase === 'em_sessao') this.mudar({ ...this.estadoAtual, ...mudancas });
   }

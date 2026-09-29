@@ -10,5 +10,7 @@ declare global {
   /** Variáveis do app/.env visíveis no renderer. */
   interface ImportMetaEnv {
     readonly RENDERER_VITE_SERVIDOR_URL: string;
+    /** Só desenvolvimento ("1"): força a conexão pelo TURN, para testá-lo (em app/.env.local). */
+    readonly RENDERER_VITE_SOMENTE_TURN?: string;
   }
 }

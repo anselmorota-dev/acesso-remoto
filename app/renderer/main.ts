@@ -139,7 +139,8 @@ const controlador = new ControladorSessao({
     estadoSessao = estado;
     renderizar();
   },
-  criarPar: (opcoes) => new ConexaoPar(opcoes),
+  // RENDERER_VITE_SOMENTE_TURN=1 (app/.env.local, só para testes): proíbe o caminho direto.
+  criarPar: (opcoes) => new ConexaoPar({ ...opcoes, somenteTurn: import.meta.env.RENDERER_VITE_SOMENTE_TURN === '1' }),
   aoMudarVideo: (video) => telaVisualizacao.definirVideo(video),
   // Anfitrião: só o main executa input; o renderer apenas repassa.
   aoReceberInput: (evento) => window.api.input.executar(evento),

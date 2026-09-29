@@ -12,6 +12,21 @@ export type IdCliente = z.infer<typeof esquemaId>;
 export const esquemaPapel = z.enum(['anfitriao', 'visualizador']);
 export type Papel = z.infer<typeof esquemaPapel>;
 
+/**
+ * Servidor TURN/STUN para a conexão direta (etapa 5.3), no formato do
+ * RTCIceServer. O servidor de sinalização gera credenciais temporárias
+ * (Cloudflare) e entrega só aos dois lados de uma sessão.
+ */
+export const esquemaServidorIce = z.object({
+  urls: z
+    .array(z.string().regex(/^(stun|turns?):[^\s]{1,250}$/))
+    .min(1)
+    .max(8),
+  username: z.string().min(1).max(512).optional(),
+  credential: z.string().min(1).max(512).optional(),
+});
+export type ServidorIce = z.infer<typeof esquemaServidorIce>;
+
 // ---------------------------------------------------------------------------
 // Sinais WebRTC: o servidor só repassa entre os dois lados de uma sessão.
 // ---------------------------------------------------------------------------
@@ -222,6 +237,11 @@ export const esquemaMensagemDoServidor = z.discriminatedUnion('tipo', [
     papel: esquemaPapel,
     /** Aceita por senha: tela e controle só depois de a senha conferir pela conexão direta. */
     porSenha: z.boolean(),
+    /**
+     * Servidores TURN com credenciais temporárias, para quando a conexão
+     * direta não passar (redes corporativas). Ausente: só STUN.
+     */
+    iceServers: z.array(esquemaServidorIce).max(4).optional(),
   }),
   /** Sinal WebRTC vindo do outro lado da sessão. */
   z.object({ tipo: z.literal('sinal'), sinal: esquemaSinal }),

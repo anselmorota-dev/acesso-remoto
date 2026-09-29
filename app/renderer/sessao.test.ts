@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { afterEach, beforeEach, test } from 'node:test';
 import { novaIdentidade } from '@acesso-remoto/server/auxiliares-teste';
 import { InstalacoesEmMemoria } from '@acesso-remoto/server/instalacoes';
-import { iniciarServidor, type ServidorSinalizacao } from '@acesso-remoto/server/servidor';
+import { iniciarServidor, type OpcoesServidor, type ServidorSinalizacao } from '@acesso-remoto/server/servidor';
 import type { EventoInput, IdMonitor, ModoQualidade, Monitor, PerfilVideo, Sinal } from '@acesso-remoto/shared';
 import { ErroCaptura } from './captura';
 import type { CanalArquivos } from './arquivos';
@@ -134,8 +134,11 @@ let servidor: ServidorSinalizacao;
 let instalacoes: InstalacoesEmMemoria;
 const limpezas: Array<() => void> = [];
 
+/** TURN falso do servidor (null: sem TURN, como em desenvolvimento). */
+let turnDoServidor: OpcoesServidor['turn'];
+
 async function subirServidor(porta = 0): Promise<void> {
-  servidor = await iniciarServidor({ porta, log: () => {}, prazoRespostaPedidoMs: 5000, instalacoes });
+  servidor = await iniciarServidor({ porta, log: () => {}, prazoRespostaPedidoMs: 5000, instalacoes, turn: turnDoServidor });
 }
 
 /** Derruba o servidor e o sobe de novo na mesma porta (como um reinício no Render). */
@@ -153,6 +156,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   simularFalhaCaptura = false;
+  turnDoServidor = undefined;
   for (const limpar of limpezas.splice(0)) limpar();
   await servidor.fechar();
 });
@@ -984,4 +988,24 @@ test('qualidade: nada antes de a senha conferir nem de conexão antiga', async (
   anfitriao.controlador.encerrar();
   parA.opcoes.aoPedirQualidade?.('fluidez');
   assert.deepEqual(parA.perfis, ['nitidez']);
+});
+
+test('TURN: as credenciais da sessão chegam à conexão dos dois lados, e a rota aparece no estado', async () => {
+  const servidores = [{ urls: ['turns:turn.exemplo:443?transport=tcp'], username: 'u', credential: 'c' }];
+  await servidor.fechar();
+  turnDoServidor = { gerar: async () => ({ usuario: 'u', servidores }), revogar: () => {} };
+  await subirServidor();
+  const { visualizador, anfitriao } = await emSessao();
+  const [parV] = visualizador.pares;
+  const [parA] = anfitriao.pares;
+  assert.deepEqual(parV?.opcoes.servidoresIce, servidores);
+  assert.deepEqual(parA?.opcoes.servidoresIce, servidores);
+
+  const rota = (app: App) => {
+    const estado = app.controlador.estado;
+    return estado.fase === 'em_sessao' ? estado.rota : undefined;
+  };
+  assert.equal(rota(visualizador), null);
+  parV?.opcoes.aoMudarRota?.('turn');
+  assert.equal(rota(visualizador), 'turn');
 });

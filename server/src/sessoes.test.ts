@@ -538,3 +538,108 @@ test('"senha_incorreta" numa sessão aceita manualmente não conta como erro de 
   visualizador.enviar({ tipo: 'conectar', destino: anfitriao.id, comSenha: true });
   assert.equal((await anfitriao.proxima()).tipo, 'pedido_conexao');
 });
+
+// ---------------------------------------------------------------------------
+// TURN (etapa 5.3)
+// ---------------------------------------------------------------------------
+
+const SERVIDORES_TURN = [{ urls: ['turns:turn.exemplo:443?transport=tcp'], username: 'u1', credential: 'c1' }];
+
+/** Provedor falso: anota o que foi gerado e revogado; "atrasoMs" simula a API. */
+function turnFalso(opcoes: { atrasoMs?: number; falhar?: boolean } = {}) {
+  let geradas = 0;
+  const revogadas: string[] = [];
+  const provedor = {
+    async gerar() {
+      await new Promise((r) => setTimeout(r, opcoes.atrasoMs ?? 0));
+      if (opcoes.falhar) return null;
+      geradas++;
+      return { usuario: `usuario-${geradas}`, servidores: SERVIDORES_TURN };
+    },
+    revogar: (usuario: string) => revogadas.push(usuario),
+  };
+  return { provedor, revogadas, geradas: () => geradas };
+}
+
+test('TURN: os dois lados recebem as credenciais na sessão; encerrar as revoga', async () => {
+  await servidor.fechar();
+  const turn = turnFalso();
+  await subir({ turn: turn.provedor });
+  const visualizador = await registrado();
+  const anfitriao = await registrado();
+  await pedir(visualizador, anfitriao);
+  anfitriao.enviar({ tipo: 'responder_pedido', origem: visualizador.id, aceito: true, porSenha: false });
+  const paraV = await visualizador.proxima();
+  const paraA = await anfitriao.proxima();
+  assert.ok(paraV.tipo === 'sessao_iniciada' && paraA.tipo === 'sessao_iniciada');
+  assert.deepEqual(paraV.iceServers, SERVIDORES_TURN);
+  assert.deepEqual(paraA.iceServers, SERVIDORES_TURN);
+
+  visualizador.enviar({ tipo: 'encerrar' });
+  await anfitriao.proxima();
+  assert.deepEqual(turn.revogadas, ['usuario-1']);
+});
+
+test('TURN: queda do servidor não revoga (a conexão direta pode seguir pelo TURN)', async () => {
+  await servidor.fechar();
+  const turn = turnFalso();
+  await subir({ turn: turn.provedor });
+  const visualizador = await registrado();
+  const anfitriao = await registrado();
+  await pedir(visualizador, anfitriao);
+  anfitriao.enviar({ tipo: 'responder_pedido', origem: visualizador.id, aceito: true, porSenha: false });
+  await visualizador.proxima();
+  await anfitriao.proxima();
+  visualizador.socket.terminate();
+  assert.equal((await anfitriao.proxima()).tipo, 'parceiro_ausente');
+  assert.deepEqual(turn.revogadas, []);
+});
+
+test('TURN: sem credenciais (API fora do ar), a sessão começa só com STUN', async () => {
+  await servidor.fechar();
+  await subir({ turn: turnFalso({ falhar: true }).provedor });
+  const visualizador = await registrado();
+  const anfitriao = await registrado();
+  await pedir(visualizador, anfitriao);
+  anfitriao.enviar({ tipo: 'responder_pedido', origem: visualizador.id, aceito: true, porSenha: false });
+  assert.deepEqual(await visualizador.proxima(), {
+    tipo: 'sessao_iniciada',
+    parceiro: anfitriao.id,
+    papel: 'visualizador',
+    porSenha: false,
+  });
+});
+
+test('TURN: pedido cancelado enquanto as credenciais eram geradas não vira sessão (e elas são revogadas)', async () => {
+  await servidor.fechar();
+  const turn = turnFalso({ atrasoMs: 150 });
+  await subir({ turn: turn.provedor });
+  const visualizador = await registrado();
+  const anfitriao = await registrado();
+  await pedir(visualizador, anfitriao);
+  anfitriao.enviar({ tipo: 'responder_pedido', origem: visualizador.id, aceito: true, porSenha: false });
+  await new Promise((r) => setTimeout(r, 30));
+  visualizador.enviar({ tipo: 'encerrar' }); // desistiu antes de a sessão começar
+  assert.deepEqual(await anfitriao.proxima(), { tipo: 'pedido_cancelado', origem: visualizador.id });
+  await new Promise((r) => setTimeout(r, 250));
+  await visualizador.nadaRecebidoEm();
+  await anfitriao.nadaRecebidoEm();
+  assert.deepEqual(turn.revogadas, ['usuario-1']);
+});
+
+test('TURN: resposta repetida durante a geração não cria duas sessões', async () => {
+  await servidor.fechar();
+  const turn = turnFalso({ atrasoMs: 100 });
+  await subir({ turn: turn.provedor });
+  const visualizador = await registrado();
+  const anfitriao = await registrado();
+  await pedir(visualizador, anfitriao);
+  anfitriao.enviar({ tipo: 'responder_pedido', origem: visualizador.id, aceito: true, porSenha: false });
+  anfitriao.enviar({ tipo: 'responder_pedido', origem: visualizador.id, aceito: true, porSenha: false });
+  assert.equal((await visualizador.proxima()).tipo, 'sessao_iniciada');
+  assert.equal((await anfitriao.proxima()).tipo, 'sessao_iniciada');
+  await visualizador.nadaRecebidoEm(300);
+  await anfitriao.nadaRecebidoEm();
+  assert.equal(turn.geradas(), 2);
+  assert.deepEqual(turn.revogadas, ['usuario-2']); // a segunda sobrou e foi revogada
+});

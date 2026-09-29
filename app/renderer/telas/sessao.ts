@@ -20,9 +20,15 @@ export interface OpcoesTelaSessao {
 
 const TEXTO_CONEXAO = {
   conectando: 'estabelecendo conexão direta…',
-  conectado: 'conectado (direto)',
+  conectado: 'conectado',
   falhou: 'falhou',
   fechado: 'encerrada',
+} as const;
+
+/** Por onde passa a conexão (5.3): direto ou repassada pelo servidor TURN. */
+const TEXTO_ROTA = {
+  direta: ' (direto)',
+  turn: ' (via servidor TURN)',
 } as const;
 
 /** "4:05" (minutos:segundos), para contagens regressivas. */
@@ -69,7 +75,8 @@ export function montarTelaSessao(opcoes: OpcoesTelaSessao): TelaSessao {
       return;
     }
     const latencia = estado.latenciaMs === null ? '' : ` · latência ${estado.latenciaMs} ms`;
-    texto.textContent = `${inicio} — ${TEXTO_CONEXAO[estado.conexao]}${latencia}`;
+    const rota = estado.conexao === 'conectado' && estado.rota ? TEXTO_ROTA[estado.rota] : '';
+    texto.textContent = `${inicio} — ${TEXTO_CONEXAO[estado.conexao]}${rota}${latencia}`;
     painel.dataset['conexao'] = estado.conexao;
   }
 

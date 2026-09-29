@@ -3,6 +3,7 @@ import { PROTOCOL_VERSION } from '@acesso-remoto/shared';
 import { InstalacoesEmMemoria, type RepositorioInstalacoes } from './instalacoes.js';
 import { InstalacoesPostgres } from './instalacoes-postgres.js';
 import { iniciarServidor } from './servidor.js';
+import { criarTurnCloudflare } from './turn.js';
 
 // O Render informa a porta pela variável PORT.
 const porta = Number(process.env.PORT ?? 8080);
@@ -27,7 +28,14 @@ const PROXIES_NO_RENDER = 3;
 const proxiesConfiaveis = Number(process.env.PROXIES_CONFIAVEIS ?? (process.env.RENDER ? PROXIES_NO_RENDER : 0));
 console.log(`[server] proxies confiáveis no caminho: ${proxiesConfiaveis}`);
 
-const servidor = await iniciarServidor({ porta, instalacoes, proxiesConfiaveis });
+// TURN (etapa 5.3): com a chave da Cloudflare cadastrada no Render (nunca no
+// git), cada sessão recebe credenciais temporárias. Sem ela, só STUN.
+const idChaveTurn = process.env.CLOUDFLARE_TURN_KEY_ID;
+const tokenTurn = process.env.CLOUDFLARE_TURN_API_TOKEN;
+const turn = idChaveTurn && tokenTurn ? criarTurnCloudflare({ idChave: idChaveTurn, token: tokenTurn }) : undefined;
+console.log(turn ? '[server] TURN da Cloudflare ligado' : '[server] TURN desligado (sem CLOUDFLARE_TURN_KEY_ID/_API_TOKEN): só STUN');
+
+const servidor = await iniciarServidor({ porta, instalacoes, proxiesConfiaveis, turn });
 console.log(`[server] escutando na porta ${servidor.porta} (protocolo v${PROTOCOL_VERSION})`);
 
 // Encerramento limpo ao receber Ctrl+C ou o sinal de parada do Render.

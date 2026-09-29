@@ -19,7 +19,8 @@ Não tenho pressa: prefiro entender cada parte a avançar rápido.
   prontos, que funcionam no Electron sem compilar; o `@nut-tree-fork/nut-js` estava parado desde 03/2025)
 - **Chamadas nativas do sistema:** `koffi` (4.2: contador da área de transferência do Windows)
 - **Servidor de sinalização:** Node.js + TypeScript + `ws` (WebSocket), deploy no Render
-- **Redes difíceis (fase 5):** servidor TURN (coturn ou serviço gerenciado)
+- **Redes difíceis (5.3):** TURN da Cloudflare (Realtime), credenciais temporárias geradas pelo
+  servidor; código pronto, desligado até cadastrar a chave
 - **Monorepo:** npm workspaces (`shared`, `server`, `app`); TypeScript 7 só para checar tipos
 - **Build do app:** electron-vite 5 (Vite fixado na v7, exigência do electron-vite)
 - **Servidor em dev:** tsx (roda o TypeScript direto, com recarga)
@@ -112,7 +113,8 @@ Não tenho pressa: prefiro entender cada parte a avançar rápido.
 ### Fase 5 — Robustez
 - [x] 5.1 Múltiplos monitores (escolher qual ver)
 - [x] 5.2 Qualidade adaptativa à conexão
-- [ ] 5.3 Servidor TURN para redes corporativas
+- [ ] 5.3 Servidor TURN para redes corporativas (código pronto; falta ativar a chave da
+  Cloudflare, se o teste entre redes mostrar necessidade)
 - [ ] 5.4 Instaladores para Windows e macOS
 
 ## Observações por sistema
@@ -124,10 +126,31 @@ Não tenho pressa: prefiro entender cada parte a avançar rápido.
 Fase 1 concluída. Fase 2: 2.1 a 2.4 concluídas; 2.5 publicada e testada na mesma máquina,
 falta o teste entre duas redes (o usuário fará depois, com outro notebook). Fase 3 concluída
 (28/09/2026). Fase 4 concluída (28/09/2026; servidor com protocolo v9): sessões longas,
-área de transferência, arquivos e chat. Fase 5: 5.1 e 5.2 concluídas (29/09/2026; protocolo
-v11). Próxima: 5.3 (servidor TURN). Pendente do usuário: teste real entre duas redes (2.5).
+área de transferência, arquivos e chat. Fase 5: 5.1 e 5.2 concluídas (29/09/2026); 5.3 com o
+código pronto e o TURN desligado (protocolo v12), ativar só se o teste entre redes mostrar
+necessidade. Próxima: 5.4 (instaladores). Pendente do usuário: teste real entre duas redes
+(2.5; o painel mostra se a conexão ficou "direto" ou "via servidor TURN").
 
 Decisões já tomadas:
+- TURN (5.3, protocolo v12; escolha do usuário: Cloudflare Realtime TURN, 1000 GB/mês grátis,
+  US$ 0,05/GB depois, TURN sobre TLS na 443). **Desligado**: a Cloudflare exige cartão para
+  ativar o Realtime e o usuário preferiu esperar o teste entre redes (2.5). Para ligar: no
+  painel da Cloudflare, Realtime → TURN Server → criar chave; cadastrar
+  `CLOUDFLARE_TURN_KEY_ID` e `CLOUDFLARE_TURN_API_TOKEN` no Render (Environment) — o log
+  mostra "TURN da Cloudflare ligado"; para testar local, as mesmas duas linhas em
+  `server/.env.local` (fora do git; rodar o servidor com `node --env-file=.env.local`) e o app
+  com `RENDERER_VITE_SOMENTE_TURN=1` em `app/.env.local` (proíbe o caminho direto).
+  - Servidor (`server/src/turn.ts`, testado com fetch falso): ao aceitar um pedido, gera
+    credenciais (`generate-ice-servers`, validade 24 h, prazo de 4 s; falha = só STUN) ANTES de
+    iniciar a sessão, e só inicia se o pedido continuar o mesmo (cancelado, expirado ou
+    resposta repetida nesse meio-tempo = revoga e não inicia). Entrega só TURN com credencial,
+    sem a porta 53 (os navegadores a bloqueiam). `sessao_iniciada {iceServers?}`. Revoga no fim
+    da sessão (encerrar, ou o parceiro voltou sem ela); queda do servidor NÃO revoga (a conexão
+    direta pode seguir pelo TURN). Token só no servidor.
+  - App: STUN + TURN da sessão; o ICE prefere o caminho direto e só usa o TURN se ele não
+    funcionar (gasto com conexão direta: só a reserva e os testes, poucos KB). Painel: rota
+    real pelo par de candidatos em uso ("relay" = TURN), conferida a cada ping.
+  - Não resolvido: sessão por TURN com mais de 24 h (credencial expira; renovar só se preciso).
 - Qualidade do vídeo (5.2, protocolo v11; escolhas do usuário: automático + modos,
   automático por equilíbrio, AV1). Medido nesta máquina (i3-7020U, 1366x768, texto
   rolando; PSNR da imagem recebida contra o quadro original, número do quadro num
@@ -396,7 +419,7 @@ Decisões já tomadas:
   ICE com fila de candidatos que chegam antes da descrição remota. Ping/pong pelo canal mede
   a latência. Mensagens do canal validadas com Zod (`shared/src/canal.ts`), máx. 16 KB.
 - STUN (2.5): Google (`stun.l.google.com:19302`) e Cloudflare (`stun.cloudflare.com:3478`) em
-  `renderer/par.ts`. Sem TURN (5.3): redes que bloqueiam conexão direta ainda não funcionam.
+  `renderer/par.ts`. TURN: ver "TURN (5.3)" (código pronto, desligado até cadastrar a chave).
 - Deploy (2.5): `render.yaml` (Blueprint) na raiz; build `npm ci -w @acesso-remoto/server
   --omit=dev` (não instala o Electron), start `npm start -w @acesso-remoto/server` (tsx é
   dependência de produção do servidor), Node 24, verificação em `/saude`, deploy a cada push.

@@ -19,3 +19,6 @@ services:
       # DATABASE_URL (segredo, NÃO vai neste arquivo): URL de conexão do Postgres
       # no Neon, cadastrada à mão no painel do Render (serviço → Environment).
       # Sem ela, o servidor funciona, mas os IDs fixos somem a cada reinício.
+      # CLOUDFLARE_TURN_KEY_ID e CLOUDFLARE_TURN_API_TOKEN (segredos, também só no
+      # painel): chave do TURN da Cloudflare (etapa 5.3). Sem elas, só STUN, e redes
+      # que bloqueiam conexão direta não conectam.

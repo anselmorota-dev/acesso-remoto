@@ -18,6 +18,7 @@ import type { Conexao, ConexaoRegistrada } from './conexao.js';
 import { InstalacoesEmMemoria, type RepositorioInstalacoes } from './instalacoes.js';
 import { chaveDoIp, criarLimites, ipDoCliente, ipInterno, type ConfigLimites } from './limites.js';
 import { criarGerenciadorSessoes } from './sessoes.js';
+import type { ProvedorTurn } from './turn.js';
 
 export interface OpcoesServidor {
   /** Porta TCP; 0 escolhe uma porta livre (útil nos testes). */
@@ -43,6 +44,8 @@ export interface OpcoesServidor {
    * aqui (Render: medido no deploy). 0 = usa o endereço da conexão.
    */
   proxiesConfiaveis?: number;
+  /** Credenciais temporárias de TURN para cada sessão (sem isto: só STUN). */
+  turn?: ProvedorTurn;
 }
 
 export interface ServidorSinalizacao {
@@ -117,6 +120,7 @@ export async function iniciarServidor(opcoes: OpcoesServidor): Promise<ServidorS
     prazoRespostaMs: prazoRespostaPedidoMs,
     prazoRetomadaMs,
     limites,
+    turn: opcoes.turn,
     log,
   });
 

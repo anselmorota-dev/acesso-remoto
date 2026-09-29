@@ -19,8 +19,9 @@ import type {
   Papel,
   Sinal,
 } from '@acesso-remoto/shared';
-import type { Conexao, ConexaoRegistrada } from './conexao.js';
+import type { Conexao, ConexaoRegistrada, Vinculo } from './conexao.js';
 import type { LimitesServidor } from './limites.js';
+import type { ProvedorTurn } from './turn.js';
 
 export interface OpcoesSessoes {
   registrados: ReadonlyMap<IdCliente, Conexao>;
@@ -36,11 +37,32 @@ export interface OpcoesSessoes {
   prazoRetomadaMs: number;
   /** Bloqueio de quem erra a senha demais (o servidor sabe pelo motivo do encerramento). */
   limites: Pick<LimitesServidor, 'podeTentarSenha' | 'falhaSenha'>;
+  /** Credenciais temporárias de TURN para cada sessão (sem isto: só STUN). */
+  turn?: ProvedorTurn;
   log: (mensagem: string) => void;
 }
 
+/** Chave de uma sessão pelos dois IDs (na mesma ordem, venha de qual lado vier). */
+const chaveSessao = (a: IdCliente, b: IdCliente) => (a < b ? `${a}|${b}` : `${b}|${a}`);
+
 export function criarGerenciadorSessoes(opcoes: OpcoesSessoes) {
-  const { registrados, enviar, enviarErro, prazoRespostaMs, prazoRetomadaMs, limites, log } = opcoes;
+  const { registrados, enviar, enviarErro, prazoRespostaMs, prazoRetomadaMs, limites, turn, log } = opcoes;
+  /** Usuário TURN de cada sessão em andamento, para revogar no fim. */
+  const turnPorSessao = new Map<string, string>();
+
+  /**
+   * A sessão acabou de vez (alguém encerrou, ou o parceiro voltou sem ela):
+   * as credenciais de TURN dela deixam de valer. Quedas do servidor não
+   * contam (a conexão direta pode seguir pelo TURN sem o servidor).
+   */
+  function revogarTurn(a: IdCliente | null, b: IdCliente): void {
+    if (!a) return;
+    const chave = chaveSessao(a, b);
+    const usuario = turnPorSessao.get(chave);
+    if (!usuario) return;
+    turnPorSessao.delete(chave);
+    turn?.revogar(usuario);
+  }
 
   function liberar(...conexoes: Conexao[]): void {
     for (const conexao of conexoes) {
@@ -55,6 +77,7 @@ export function criarGerenciadorSessoes(opcoes: OpcoesSessoes) {
     if (conexao.vinculo.tipo !== 'retomando') return;
     const parceiro = conexao.vinculo.parceiro;
     liberar(conexao);
+    revogarTurn(conexao.id, parceiro);
     enviar(conexao, { tipo: 'sessao_encerrada', motivo: 'parceiro_desconectou' });
     log(`[server] sessão ${conexao.id} ↔ ${parceiro} encerrada: o parceiro voltou sem ela`);
   }
@@ -126,21 +149,43 @@ export function criarGerenciadorSessoes(opcoes: OpcoesSessoes) {
       enviarErro(anfitriao, 'mensagem_invalida', 'Aceite por senha só vale para pedido com senha');
       return;
     }
-    const visualizador = vinculo.visualizador;
-    const sessaoPorSenha = aceito && porSenha;
-    liberar(visualizador, anfitriao);
-
     if (!aceito) {
-      enviar(visualizador, { tipo: 'pedido_recusado', destino: anfitriao.id, motivo: 'recusado' });
+      liberar(vinculo.visualizador, anfitriao);
+      enviar(vinculo.visualizador, { tipo: 'pedido_recusado', destino: anfitriao.id, motivo: 'recusado' });
       log(`[server] pedido ${origem} → ${anfitriao.id} recusado`);
       return;
     }
+    void aceitar(anfitriao, vinculo, porSenha);
+  }
 
-    visualizador.vinculo = { tipo: 'em_sessao', parceiro: anfitriao, papel: 'visualizador', porSenha: sessaoPorSenha };
-    anfitriao.vinculo = { tipo: 'em_sessao', parceiro: visualizador, papel: 'anfitriao', porSenha: sessaoPorSenha };
-    enviar(visualizador, { tipo: 'sessao_iniciada', parceiro: anfitriao.id, papel: 'visualizador', porSenha: sessaoPorSenha });
-    enviar(anfitriao, { tipo: 'sessao_iniciada', parceiro: origem, papel: 'anfitriao', porSenha: sessaoPorSenha });
-    log(`[server] sessão iniciada ${origem} → ${anfitriao.id}${sessaoPorSenha ? ' (por senha)' : ''}`);
+  /**
+   * Pedido aceito: gera as credenciais de TURN (se houver) e só então inicia a
+   * sessão. Enquanto a API responde, o pedido continua pendente (pode expirar
+   * ou ser cancelado como sempre); depois, só vale se continuar o mesmo.
+   */
+  async function aceitar(
+    anfitriao: ConexaoRegistrada,
+    pedido: Extract<Vinculo, { tipo: 'pedido_recebido' }>,
+    porSenha: boolean,
+  ): Promise<void> {
+    const visualizador = pedido.visualizador;
+    const credenciais = turn ? await turn.gerar() : null;
+    const aindaPendente =
+      anfitriao.vinculo === pedido && visualizador.vinculo.tipo === 'pedindo' && visualizador.vinculo.anfitriao === anfitriao;
+    if (!aindaPendente || !visualizador.id) {
+      // Cancelado, expirado ou respondido de novo nesse meio-tempo: nada de sessão.
+      if (credenciais) turn?.revogar(credenciais.usuario);
+      return;
+    }
+
+    liberar(visualizador, anfitriao);
+    visualizador.vinculo = { tipo: 'em_sessao', parceiro: anfitriao, papel: 'visualizador', porSenha };
+    anfitriao.vinculo = { tipo: 'em_sessao', parceiro: visualizador, papel: 'anfitriao', porSenha };
+    if (credenciais) turnPorSessao.set(chaveSessao(visualizador.id, anfitriao.id), credenciais.usuario);
+    const ice = credenciais ? { iceServers: credenciais.servidores } : {};
+    enviar(visualizador, { tipo: 'sessao_iniciada', parceiro: anfitriao.id, papel: 'visualizador', porSenha, ...ice });
+    enviar(anfitriao, { tipo: 'sessao_iniciada', parceiro: visualizador.id, papel: 'anfitriao', porSenha, ...ice });
+    log(`[server] sessão iniciada ${visualizador.id} → ${anfitriao.id}${porSenha ? ' (por senha)' : ''}${credenciais ? ' com TURN' : ''}`);
   }
 
   /**
@@ -230,6 +275,7 @@ export function criarGerenciadorSessoes(opcoes: OpcoesSessoes) {
           limites.falhaSenha(vinculo.parceiro.ip, conexao.id);
         }
         liberar(conexao, vinculo.parceiro);
+        if (vinculo.parceiro.id) revogarTurn(conexao.id, vinculo.parceiro.id);
         enviar(vinculo.parceiro, { tipo: 'sessao_encerrada', motivo });
         log(`[server] sessão encerrada ${conexao.id} ↔ ${vinculo.parceiro.id} (${motivo})`);
         return;
@@ -243,6 +289,7 @@ export function criarGerenciadorSessoes(opcoes: OpcoesSessoes) {
         // O parceiro não está ligado a esta conexão: não há a quem avisar aqui
         // (se a conexão direta ainda existir, o app avisa por ela).
         liberar(conexao);
+        revogarTurn(conexao.id, vinculo.parceiro);
         log(`[server] sessão encerrada ${conexao.id} ↔ ${vinculo.parceiro} (${motivo}, sem o parceiro no servidor)`);
         return;
     }

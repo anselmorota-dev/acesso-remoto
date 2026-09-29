@@ -28,6 +28,7 @@ import {
   type MotivoFimPeloCanal,
   type Papel,
   type PerfilVideo,
+  type ServidorIce,
   type Sinal,
 } from '@acesso-remoto/shared';
 import { serializarAreaTransferencia } from './area-transferencia';
@@ -40,6 +41,12 @@ export type EstadoPar = 'conectando' | 'conectado' | 'falhou' | 'fechado';
 
 export interface OpcoesPar {
   papel: Papel;
+  /** Servidores TURN com as credenciais da sessão (vindos do servidor de sinalização). */
+  servidoresIce?: ServidorIce[];
+  /** Só desenvolvimento: força o caminho pelo TURN (para testá-lo). */
+  somenteTurn?: boolean;
+  /** Por onde a conexão direta passa: direto ou pelo TURN. */
+  aoMudarRota?: (rota: RotaConexao) => void;
   enviarSinal: (sinal: Sinal) => void;
   aoMudarEstado: (estado: EstadoPar) => void;
   /** Tempo de ida e volta medido pelo DataChannel. */
@@ -124,12 +131,25 @@ const ESPERA_AVISO_FIM_MS = 1000;
 // STUN: cada lado pergunta a um servidor público "qual é meu endereço visto
 // de fora?" e envia esse endereço como candidato ICE. Isso permite a conexão
 // direta entre redes diferentes quando os roteadores deixam (a maioria das
-// redes domésticas). Dois provedores, um de reserva do outro. Redes que
-// bloqueiam conexão direta (ex.: corporativas) vão precisar de TURN (etapa 5.3).
+// redes domésticas). Dois provedores, um de reserva do outro.
 // O STUN só vê o endereço; vídeo e comandos nunca passam por ele.
-const CONFIGURACAO: RTCConfiguration = {
-  iceServers: [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun.cloudflare.com:3478'] }],
-};
+const STUN: RTCIceServer = { urls: ['stun:stun.l.google.com:19302', 'stun:stun.cloudflare.com:3478'] };
+
+// TURN (etapa 5.3): redes que bloqueiam conexão direta (ex.: corporativas)
+// usam um servidor que repassa o tráfego. Chega pelo servidor de sinalização,
+// com credenciais temporárias da sessão. O ICE prefere sempre o caminho
+// direto e só usa o TURN se ele não funcionar. O conteúdo continua cifrado de
+// ponta a ponta (DTLS/SRTP): o TURN repassa pacotes que não consegue ler.
+function configuracao(opcoes: OpcoesPar): RTCConfiguration {
+  return {
+    iceServers: [STUN, ...(opcoes.servidoresIce ?? [])],
+    // Só para testar o TURN (desenvolvimento): proíbe o caminho direto.
+    iceTransportPolicy: opcoes.somenteTurn ? 'relay' : 'all',
+  };
+}
+
+/** Por onde a conexão direta passa de fato. */
+export type RotaConexao = 'direta' | 'turn';
 
 const INTERVALO_PING_MS = 2000;
 
@@ -166,10 +186,12 @@ export class ConexaoPar implements Par {
   /** Anfitrião: perfil do vídeo (vale também para as próximas capturas). */
   private perfil: PerfilVideo = 'nitidez';
   private readonly amostrador = new AmostradorMovimento();
+  /** Por onde a conexão passa (a última informada). */
+  private rota: RotaConexao | null = null;
 
   constructor(opcoes: OpcoesPar) {
     this.opcoes = opcoes;
-    this.pc = new RTCPeerConnection(CONFIGURACAO);
+    this.pc = new RTCPeerConnection(configuracao(opcoes));
 
     this.pc.addEventListener('icecandidate', (evento) => {
       const c = evento.candidate;
@@ -190,6 +212,7 @@ export class ConexaoPar implements Par {
       switch (this.pc.connectionState) {
         case 'connected':
           this.mudarEstado('conectado');
+          void this.verificarRota();
           break;
         case 'failed':
           this.mudarEstado('falhou');
@@ -337,6 +360,33 @@ export class ConexaoPar implements Par {
     // Só agora a captura anterior pode parar: a imagem não fica preta na troca.
     if (anterior) pararCaptura(anterior);
     return monitor;
+  }
+
+  /**
+   * Descobre se o par de candidatos em uso passa pelo TURN ("relay" de um dos
+   * lados) e avisa quando muda (ex.: depois de refazer a conexão).
+   */
+  private async verificarRota(): Promise<void> {
+    if (this.fechado()) return;
+    let rota: RotaConexao | null = null;
+    try {
+      const relatorio = await this.pc.getStats();
+      let idPar: unknown;
+      relatorio.forEach((item: Record<string, unknown>) => {
+        if (item['type'] === 'transport' && item['selectedCandidatePairId']) idPar = item['selectedCandidatePairId'];
+      });
+      const par = idPar ? (relatorio.get(String(idPar)) as Record<string, unknown> | undefined) : undefined;
+      if (par) {
+        const tipo = (id: unknown) => (relatorio.get(String(id)) as Record<string, unknown> | undefined)?.['candidateType'];
+        rota = tipo(par['localCandidateId']) === 'relay' || tipo(par['remoteCandidateId']) === 'relay' ? 'turn' : 'direta';
+      }
+    } catch {
+      return; // conexão fechando: não importa mais
+    }
+    if (rota && rota !== this.rota && !this.fechado()) {
+      this.rota = rota;
+      this.opcoes.aoMudarRota?.(rota);
+    }
   }
 
   /** Método (e não comparação direta) porque o estado muda durante os "await". */
@@ -530,7 +580,11 @@ export class ConexaoPar implements Par {
     this.canal = canal;
     canal.addEventListener('open', () => {
       // Os dois lados medem a latência com um ping periódico.
-      const pingar = () => this.enviarNoCanal({ tipo: 'ping', t: performance.now() });
+      // A cada ping, confere também a rota (o caminho pode mudar numa reconexão).
+      const pingar = () => {
+        this.enviarNoCanal({ tipo: 'ping', t: performance.now() });
+        void this.verificarRota();
+      };
       pingar();
       this.timerPing = setInterval(pingar, INTERVALO_PING_MS);
       // Senha que o visualizador pediu para enviar antes de o canal abrir.
