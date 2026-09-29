@@ -19,17 +19,24 @@ function criarCanal(atrasoMs: number, entregar: (dados: string | ArrayBuffer) =>
   let fila = 0;
   let maiorFila = 0;
   let fioLivreEm = 0;
+  // Entregas encadeadas, sempre na ordem de envio (como o RTCDataChannel).
+  // Um setTimeout solto por mensagem podia sair fora de ordem com o
+  // processador ocupado: o Node conta os timers por um relógio que só avança
+  // a cada volta do laço, e uma mensagem posterior "passava na frente".
+  let cadeia = Promise.resolve();
   const canal: CanalArquivos = {
     enviar(dados) {
       const tamanho = typeof dados === 'string' ? dados.length : dados.byteLength;
       fila += tamanho;
       maiorFila = Math.max(maiorFila, fila);
-      const agora = Date.now();
-      fioLivreEm = Math.max(agora, fioLivreEm) + (bytesPorMs ? tamanho / bytesPorMs : 0);
-      setTimeout(() => {
-        fila -= tamanho;
-        entregar(dados);
-      }, fioLivreEm - agora + atrasoMs);
+      fioLivreEm = Math.max(Date.now(), fioLivreEm) + (bytesPorMs ? tamanho / bytesPorMs : 0);
+      const entregaEm = fioLivreEm + atrasoMs;
+      cadeia = cadeia
+        .then(() => new Promise<void>((pronto) => setTimeout(pronto, Math.max(0, entregaEm - Date.now()))))
+        .then(() => {
+          fila -= tamanho;
+          entregar(dados);
+        });
     },
     fila: () => fila,
     esperarFila: (limite) =>
