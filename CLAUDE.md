@@ -150,9 +150,14 @@ Decisões já tomadas:
   máximo um a cada 8 ms (~125/s, dentro do limite de 200 eventos/s do anfitrião); a rolagem
   continua agrupada por quadro. Depois: mediana 41 ms, 90% até 55 ms, ~56 fps. Descartado:
   desenhar a seta localmente (como o AnyDesk) — o Chromium ignora `cursor: 'never'` e a captura
-  sempre inclui o cursor (voltariam as duas setas). Ideia seguinte, não medida (precisa de rede
-  com perda): canal não confiável/sem ordem só para o "mover" (hoje, um pacote perdido segura
-  os movimentos seguintes até a retransmissão).
+  sempre inclui o cursor (voltariam as duas setas). Canal do mouse (0.2.4, pedido do usuário): DataChannel "mouse" sem ordem e
+  sem retransmissão ("ordered: false, maxRetransmits: 0", criado pelo anfitrião) só para o
+  "mover"; cliques, teclas e o resto seguem no "controle" (confiável). Número de sequência "n"
+  (opcional) no "mover" e no clique: o anfitrião descarta movimentos atrasados e os anteriores
+  a um clique ("renderer/ordem-mouse.ts", testado). Compatível com 0.2.x (sem protocolo novo):
+  sem o canal, o "mover" vai pelo "controle"; versões antigas ignoram o "n" (o Zod descarta
+  campos a mais). Canal do mouse: só "mouse_mover", até 256 caracteres. Ganho só aparece em
+  rede com perda (aqui, sem perda, a latência ficou igual: mediana 32 ms).
 - Faixa do topo compacta (pedido do usuário, 0.2.2): na tela remota, abas e painel ocupavam
   ~150 px. Agora `#barra-sessao` junta os dois; na tela inicial é `display: contents` (nada
   muda), na remota vira uma linha só na largura toda (~40 px): abas à esquerda, situação

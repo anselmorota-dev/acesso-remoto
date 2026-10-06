@@ -38,6 +38,18 @@ const coordenada = z.number().min(0).max(1);
 export const ROLAGEM_MAXIMA = 2000;
 const rolagem = z.number().int().min(-ROLAGEM_MAXIMA).max(ROLAGEM_MAXIMA);
 
+/**
+ * Número de sequência dos movimentos do mouse. O "mover" vai por um canal
+ * sem ordem e sem retransmissão (canal "mouse"): o anfitrião descarta os que
+ * chegam atrasados. O clique leva o número do último movimento enviado, para
+ * um movimento atrasado não mexer no mouse depois dele. Opcional: versões que
+ * não o mandam continuam funcionando (sem descarte).
+ */
+const sequencia = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).optional();
+
+/** Canal só dos movimentos do mouse: sem ordem e sem retransmissão. */
+export const ROTULO_CANAL_MOUSE = 'mouse';
+
 export const esquemaBotaoMouse = z.enum(['esquerdo', 'meio', 'direito']);
 export type BotaoMouse = z.infer<typeof esquemaBotaoMouse>;
 
@@ -65,7 +77,7 @@ export const TEXTO_MAXIMO = 32;
 
 const esquemasInput = [
   /** Move o cursor para a posição. */
-  z.object({ tipo: z.literal('mouse_mover'), x: coordenada, y: coordenada }),
+  z.object({ tipo: z.literal('mouse_mover'), x: coordenada, y: coordenada, n: sequencia }),
   /**
    * Aperta ou solta um botão. Leva a posição junto para o clique cair no
    * lugar certo mesmo que o último "mover" ainda não tenha sido enviado.
@@ -76,6 +88,7 @@ const esquemasInput = [
     pressionado: z.boolean(),
     x: coordenada,
     y: coordenada,
+    n: sequencia,
   }),
   /** Rola a roda do mouse, em pixels, como no navegador (dy > 0 = descer, dx > 0 = direita). */
   z.object({ tipo: z.literal('mouse_rolar'), dx: rolagem, dy: rolagem }),

@@ -16,6 +16,7 @@
 // pelo servidor) sem desfazer a sessão, o canal nem a criptografia.
 import {
   PEDACO_ARQUIVO,
+  ROTULO_CANAL_MOUSE,
   TAMANHO_MAXIMO_CONTROLE_ARQUIVOS,
   TAMANHO_MAXIMO_MENSAGEM_CANAL,
   decodificarMensagem,
@@ -35,6 +36,7 @@ import { serializarAreaTransferencia } from './area-transferencia';
 import type { CanalArquivos } from './arquivos';
 import { capturarTela } from './captura';
 import { AmostradorMovimento } from './movimento';
+import { NumeradorMouse, OrdemMouse } from './ordem-mouse';
 import { PERFIS, ordenarCodecs, type AmostraVideo, type ParQualidade } from './qualidade';
 
 export type EstadoPar = 'conectando' | 'conectado' | 'falhou' | 'fechado';
@@ -153,12 +155,25 @@ export type RotaConexao = 'direta' | 'turn';
 
 const INTERVALO_PING_MS = 2000;
 
+/** Maior mensagem aceita no canal do mouse (um "mover" tem ~60 caracteres). */
+const TAMANHO_MAXIMO_MOVIMENTO = 256;
+
 export class ConexaoPar implements Par {
   private readonly opcoes: OpcoesPar;
   private readonly pc: RTCPeerConnection;
   private canal: RTCDataChannel | null = null;
   /** Canal só dos arquivos: um arquivo grande nunca atrasa mouse e teclado. */
   private canalArquivos: RTCDataChannel | null = null;
+  /**
+   * Canal só dos movimentos do mouse, sem ordem e sem retransmissão: numa rede
+   * com perda, um pacote perdido não segura os movimentos seguintes (cliques e
+   * teclas seguem no canal confiável). Sem ele (versão anterior do outro
+   * lado), os movimentos vão pelo canal "controle".
+   */
+  private canalMouse: RTCDataChannel | null = null;
+  /** Visualizador: numera os movimentos; anfitrião: descarta os atrasados. */
+  private readonly numeradorMouse = new NumeradorMouse();
+  private readonly ordemMouse = new OrdemMouse();
   private timerPing: ReturnType<typeof setInterval> | undefined;
   /** Candidatos que chegaram antes da descrição remota; aplicados depois. */
   private candidatosPendentes: RTCIceCandidateInit[] = [];
@@ -230,11 +245,13 @@ export class ConexaoPar implements Par {
     if (opcoes.papel === 'anfitriao') {
       this.prepararCanal(this.pc.createDataChannel('controle'));
       this.prepararCanalArquivos(this.pc.createDataChannel('arquivos'));
+      this.prepararCanalMouse(this.pc.createDataChannel(ROTULO_CANAL_MOUSE, { ordered: false, maxRetransmits: 0 }));
     } else {
       this.pc.addEventListener('datachannel', (evento) => {
         // Só os canais que o app conhece; qualquer outro é fechado.
         if (evento.channel.label === 'controle' && !this.canal) this.prepararCanal(evento.channel);
         else if (evento.channel.label === 'arquivos' && !this.canalArquivos) this.prepararCanalArquivos(evento.channel);
+        else if (evento.channel.label === ROTULO_CANAL_MOUSE && !this.canalMouse) this.prepararCanalMouse(evento.channel);
         else evento.channel.close();
       });
       this.pc.addEventListener('track', (evento) => {
@@ -444,7 +461,12 @@ export class ConexaoPar implements Par {
   }
 
   enviarInput(evento: EventoInput): void {
-    this.enviarNoCanal(evento);
+    const numerado = this.numeradorMouse.numerar(evento);
+    if (numerado.tipo === 'mouse_mover' && this.canalMouse?.readyState === 'open') {
+      this.canalMouse.send(JSON.stringify(numerado));
+      return;
+    }
+    this.enviarNoCanal(numerado);
   }
 
   enviarChat(texto: string): boolean {
@@ -492,7 +514,30 @@ export class ConexaoPar implements Par {
   private fecharConexao(): void {
     this.canal?.close();
     this.canalArquivos?.close();
+    this.canalMouse?.close();
     this.pc.close();
+  }
+
+  /** Anfitrião: input recebido (de qualquer canal), sem os movimentos que chegaram atrasados. */
+  private receberInput(evento: EventoInput): void {
+    if (this.ordemMouse.aceitar(evento)) this.opcoes.aoReceberInput?.(evento);
+  }
+
+  private prepararCanalMouse(canal: RTCDataChannel): void {
+    this.canalMouse = canal;
+    // Só o anfitrião recebe por ele; e só movimentos do mouse valem aqui.
+    canal.addEventListener('message', (evento) => {
+      if (this.estado === 'fechado' || this.opcoes.papel !== 'anfitriao') return;
+      const dados: unknown = evento.data;
+      // Regra de segurança: tamanho limitado e formato validado antes de tudo.
+      if (typeof dados !== 'string' || dados.length > TAMANHO_MAXIMO_MOVIMENTO) return;
+      const mensagem = decodificarMensagem(esquemaMensagemCanal, dados);
+      if (mensagem?.tipo !== 'mouse_mover') {
+        console.warn('[par] mensagem inválida no canal do mouse, ignorada');
+        return;
+      }
+      this.receberInput(mensagem);
+    });
   }
 
   private prepararCanalArquivos(canal: RTCDataChannel): void {
@@ -668,7 +713,7 @@ export class ConexaoPar implements Par {
         // Todo o resto é evento de input (mouse e teclado); o TypeScript
         // confere que "mensagem" aqui é um EventoInput.
         // O visualizador nunca é controlado: ignora input que chegue a ele.
-        if (this.opcoes.papel === 'anfitriao') this.opcoes.aoReceberInput?.(mensagem);
+        if (this.opcoes.papel === 'anfitriao') this.receberInput(mensagem);
         break;
     }
   }
